@@ -395,6 +395,18 @@ footer .wrap { color:#666; font-size: 0.9rem; padding-top: 18px; padding-bottom:
   .lightbox, .lightbox img { transition: none; }
 }
 
+/* Loupe de recherche dans le menu */
+.nav-search{
+  margin-left: auto;       /* pousse la loupe à droite */
+  font-size: 1.15rem;
+  opacity: 0.9;
+  line-height: 1;
+}
+
+.nav-search:hover{
+  opacity: 1;
+  text-decoration: none;
+}
 
 hr { border:0; border-top:1px solid #e6e6e6; margin: 18px 0; }
 .kv { display:grid; grid-template-columns: 150px 1fr; gap: 10px 14px; margin: 14px 0; }
@@ -583,11 +595,14 @@ class SiteConfig:
     order_mail_body: str = "Bonjour,\n\nJe souhaite commander : {title} ({id13}).\n\nMerci."
 
     # Menu
+    menu_label_presentation: str = "Présentation"
+    menu_label_soumettre: str = "Soumettre un manuscrit"
     menu_label_a_paraitre: str = "À paraître"
     menu_label_catalogue: str = "Catalogue"
-    menu_label_collections: str = "Collections"
     menu_label_revues: str = "Revues"
+    menu_label_collections: str = "Collections"
     menu_label_open_access: str = "Open Access"
+    menu_label_commandes: str = "Commandes"
     menu_label_actualites: str = "Actualités"
 
     # FTP publish (optionnel)
@@ -702,13 +717,19 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
 
     nav = "\n".join([
         nav_link(f"{rel}/index.html", "Accueil", "home"),
+        nav_link(f"{rel}/presentation.html", cfg.menu_label_presentation, "presentation"),
+        nav_link(f"{rel}/soumettre-un-manuscrit.html", cfg.menu_label_soumettre, "soumettre"),
         nav_link(f"{rel}/catalogue.html", cfg.menu_label_catalogue, "catalogue"),
         nav_link(f"{rel}/a-paraitre.html", cfg.menu_label_a_paraitre, "a_paraitre"),
-        nav_link(f"{rel}/revues/index.html", cfg.menu_label_revues, "revues"),
         nav_link(f"{rel}/collections/index.html", cfg.menu_label_collections, "collections"),
+        nav_link(f"{rel}/revues/index.html", cfg.menu_label_revues, "revues"),
         nav_link(f"{rel}/open-access.html", cfg.menu_label_open_access, "open_access"),
+        nav_link(f"{rel}/commander.html", cfg.menu_label_commandes, "commandes"),
         nav_link(f"{rel}/actualites.html", cfg.menu_label_actualites, "actualites"),
         nav_link(f"{rel}/contact.html", "Contact", "contact"),
+
+        # 🔍 Loupe (à droite)
+        # f'<a class="nav-search" href="{rel}/catalogue.html" title="Rechercher dans le catalogue" aria-label="Rechercher dans le catalogue">🔍</a>',
     ])
 
     def logo_img(path: str, alt: str) -> str:
@@ -749,11 +770,26 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
   <div class="wrap">
     <div class="brand">
       <div class="brand-left">
-        <div class="brand-logos">{left}</div>
+        <div class="brand-logos">{left}</div>   
         <div class="brand-text">
-          <div class="brand-title">{e(cfg.site_title)}</div>
-          <div class="brand-sub">{e(cfg.site_subtitle)}</div>
+            <div class="brand-title">{e(cfg.site_title)}</div>
+            <div class="brand-sub">
+                <span class="brand-subtitle-text">{e(cfg.site_subtitle)}</span>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                Rechercher : 
+                <a href="{rel}/catalogue.html"
+                    class="brand-search"
+                    title="Rechercher dans le catalogue"
+                    aria-label="Rechercher dans le catalogue">🔍</a>
+            </div>
         </div>
+        
+        
       </div>
       <div class="brand-logos">{right}</div>
     </div>
@@ -1581,7 +1617,19 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, out_dir: Path) -> None:
         content = md_to_html(r.get("content_md") or "")
         empty = "<p class='small'>(contenu vide)</p>"
         body = f"<h2>{e(title)}</h2>{content if content else empty}"
-        key = "open_access" if slug in {"open-access", "open_access"} else ("actualites" if slug in {"actualites", "actus"} else "home")
+        KEY_BY_SLUG = {
+            "presentation": "presentation",
+            "soumettre-un-manuscrit": "soumettre",
+            "open-access": "open_access",
+            "open_access": "open_access",
+            "commander": "commandes",
+            "commandes": "commandes",
+            "actualites": "actualites",
+            "actus": "actualites",
+        }
+
+        key = KEY_BY_SLUG.get(slug, "home")
+
         write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
 
     for slug, title, key in [("open-access", cfg.menu_label_open_access, "open_access"),
