@@ -1,15 +1,16 @@
-# Générateur de site statique (Excel → HTML) — Presses universitaires (PURH / générique)
+# CIDRE - Catalogue Internet - Documentation - Recherche - Edition
+**Générateur de site statique pour maisons d'édition scientifiques (ou indépendantes)**
 
-Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier Excel** (métadonnées + pages éditoriales), le script produit un site HTML complet (catalogue, pages “collections”, “revues”, pages fixes, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages.
+Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site HTML complet (catalogue, pages “collections”, “revues”, pages fixes, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.)
 
-L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **flux éditorial** maîtrisé (l’Excel fait foi).
+L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **flux éditorial** maîtrisé (l’tableur fait foi).
 
 ---
 
 ## Fonctionnalités
 
 - ✅ Génération d’un site **100% statique**
-- ✅ Lecture d’un classeur Excel structuré (onglets “CONFIG”, “PAGES”, “COLLECTIONS”, “REVUES”, “CONTACTS” + onglet catalogue)
+- ✅ Lecture d’un classeur tableur structuré (onglets “CONFIG”, “PAGES”, “COLLECTIONS”, “REVUES”, “CONTACTS” + onglet catalogue)
 - ✅ Pages générées :  
   - `index.html` (accueil)  
   - `catalogue.html` (recherche + filtres côté navigateur)  
@@ -18,7 +19,7 @@ L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **
   - pages fixes (politique éditoriale, mentions légales, etc.)
 - ✅ Export d’un `assets/catalogue.json` consommé en front (recherche / filtres / tri sans backend)
 - ✅ Gestion des couvertures (copie, fallback si manquante)
-- ✅ Mécanisme d’“activation” des titres (publication / masquage) compatible avec plusieurs versions de templates Excel
+- ✅ Mécanisme d’“activation” des titres (publication / masquage) compatible avec plusieurs versions de templates tableur
 - ✅ Option de publication (FTP) si activée dans le script / la config
 
 ---
@@ -51,14 +52,14 @@ pip install -r requirements.txt
 
 ## Démarrage rapide
 
-1) Placez votre fichier Excel (par ex. `purh_site_excel_template_v2.xlsx`) à la racine ou dans `data/`.
+1) Placez votre fichier tableur (par ex. `site_tableur_template.xlsx`) à la racine ou dans `data/`.
 
 2) Placez les couvertures dans un dossier (ex. `covers/`).
 
 3) Lancez la génération :
 
 ```bash
-python build_site.py --excel purh_site_excel_template_v2.xlsx --out dist --covers-dir covers
+python build_site.py --tableur purh_site_tableur_template_v2.xlsx --out dist --covers-dir covers
 ```
 
 4) Ouvrez `dist/index.html` dans un navigateur, ou servez en local :
@@ -76,7 +77,7 @@ Puis visitez : `http://localhost:8000`
 ### Générer le site
 
 ```bash
-python build_site.py --excel <classeur.xlsx> --out dist --covers-dir covers
+python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers
 ```
 
 ### Publication (optionnelle)
@@ -84,7 +85,7 @@ python build_site.py --excel <classeur.xlsx> --out dist --covers-dir covers
 Si le script propose une option de publication :
 
 ```bash
-python build_site.py --excel <classeur.xlsx> --out dist --covers-dir covers --publish-ftp
+python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers --publish-ftp
 ```
 
 > ⚠️ Ne commitez **jamais** de mots de passe FTP dans le dépôt.  
@@ -92,7 +93,7 @@ python build_site.py --excel <classeur.xlsx> --out dist --covers-dir covers --pu
 
 ---
 
-## Structure attendue du classeur Excel
+## Structure attendue du classeur tableur
 
 Le générateur s’appuie sur un classeur dont la structure est volontairement **stable**.  
 Les onglets “éditoriaux” pilotent la navigation et les contenus fixes ; l’onglet “catalogue” pilote les livres.
@@ -148,7 +149,7 @@ Le générateur vise la robustesse : il tolère plusieurs “générations” de
 
 ## Activation / masquage des titres (point important)
 
-Selon les versions du template Excel, l’activation du titre peut s’appuyer sur :
+Selon les versions du template tableur, l’activation du titre peut s’appuyer sur :
 
 - `Actif pour site` (historique)
 - `active_site` (templates GitHub / versions récentes)
@@ -184,7 +185,7 @@ Dans le dossier `dist/` :
 ## Personnalisation
 
 ### Données (sans coder)
-Tout ce qui est identité / navigation / textes fixes doit venir de l’Excel :
+Tout ce qui est identité / navigation / textes fixes doit venir du tableur :
 - nom de la structure, baseline
 - liens institutionnels
 - pages “À propos”, “Politique éditoriale”, “Soumettre un manuscrit”, etc.
@@ -220,7 +221,7 @@ Copiez le contenu de `dist/` sur le serveur (Apache/Nginx) :
 - Garder **un identifiant stable** (`id13`) même si le titre change
 - Vérifier que `slug` ne change pas après mise en ligne (sinon liens cassés)
 - Normaliser les champs texte (guillemets, espaces insécables, italique si balisage prévu)
-- Centraliser la vérité : **l’Excel est la source**, pas le HTML généré
+- Centraliser la vérité : **l’tableur est la source**, pas le HTML généré
 
 ---
 
@@ -248,7 +249,7 @@ Les contributions sont bienvenues (issues, PR) :
 
 1. Créez une branche (`feature/…` ou `fix/…`)
 2. Ajoutez des tests si pertinent
-3. Décrivez clairement l’impact (données / thème / compatibilité Excel)
+3. Décrivez clairement l’impact (données / thème / compatibilité tableur)
 
 Recommandations (si en place dans le repo) :
 - formatage : `black`
@@ -261,28 +262,27 @@ Recommandations (si en place dans le repo) :
 
 - Ne commitez pas d’exports contenant des données personnelles inutiles.
 - Ne commitez jamais d’identifiants FTP / tokens / secrets.
-- Si le fichier Excel contient des contacts nominaux, privilégiez des données “institutionnelles”.
+- Si le fichier tableur contient des contacts nominaux, privilégiez des données “institutionnelles”.
 
 ---
 
 ## Feuille de route (indicative)
 
 - [ ] Validation “qualité de données” (rapport : champs manquants, slugs dupliqués, prix vides…)
-- [ ] Export ONIX (ou passerelle ONIX → Excel) selon le flux métier
+- [ ] Export ONIX (ou passerelle ONIX → tableur) selon le flux métier
 - [ ] Génération de pages “fiches auteurs / contributeurs”
 - [ ] CI GitHub Actions : build + déploiement automatique
 - [ ] Accessibilité : contrastes, navigation clavier, ARIA
 
 ---
 
-## Licence
+## Licence et crédits
 
-À définir selon la politique de diffusion du projet (MIT / GPL / CeCILL / licence établissement).  
-Ajoutez un fichier `LICENSE` à la racine du dépôt et adaptez ce paragraphe en conséquence.
+Voir fichier Licence
 
 ---
 
 ## Crédits
 
-Développé pour un usage “presses universitaires” (PURH) avec une logique **générique** :  
-données dans Excel, génération statique, déploiement simple, maintenance pérenne.
+Développé par les Presses universitaires de Rouen et du Havre et la Chaire d'excellence en édition numérique, pour un usage “presses universitaires” avec une logique **générique** :  
+données dans tableur, génération statique, déploiement simple, maintenance pérenne.
