@@ -1,3 +1,8 @@
+# Générateur de site statique de maison d'édition scientifique et / ou indépendante
+# © 2025 Tony Gheeraert - Licence MIT (voir LICENSE)
+# Crédits : PURH + Chaire d'excellence édition numérique de l'université de Rouen
+# gui_tk = Fichier de lancement tkinter
+#
 # gui_tk.py
 import threading
 import traceback
