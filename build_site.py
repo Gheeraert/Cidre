@@ -1013,6 +1013,15 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["physical_str"] = df.apply(physical_line, axis=1)
 
     # Actif pour site
+    # --- Alias colonne d’activation (templates GitHub vs master historique)
+    if "active_site" in df.columns:
+        if "Actif pour site" not in df.columns:
+            df["Actif pour site"] = df["active_site"]
+        else:
+            mask = df["Actif pour site"].isna() | (df["Actif pour site"].astype(str).str.strip() == "")
+            df.loc[mask, "Actif pour site"] = df.loc[mask, "active_site"]
+
+    # Filtrage : on ne filtre que si on a au moins une valeur explicite
     if "Actif pour site" in df.columns and df["Actif pour site"].notna().any():
         df = df[df["Actif pour site"].apply(norm_bool)].copy()
 
@@ -1790,6 +1799,13 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
 
 def main():
     ap = argparse.ArgumentParser()
+
+    # options ONIX
+    ap.add_argument("--export-onix", action="store_true", help="Générer un export ONIX 3.0")
+    ap.add_argument("--onix-out", default=None, help="Chemin du fichier ONIX XML de sortie")
+    ap.add_argument("--onix-report", default=None, help="Chemin du CSV de contrôle (erreurs/alertes)")
+    ap.add_argument("--onix-strict", action="store_true", help="Mode strict (échec si champs requis manquants)")
+
     ap.add_argument("--excel", required=True, help="Chemin du classeur Excel")
     ap.add_argument("--out", default="dist", help="Dossier de sortie")
     ap.add_argument("--covers-dir", default="", help="Dossier contenant les couvertures (images)")
@@ -1806,21 +1822,51 @@ def main():
         sys.exit(2)
 
     out_dir = Path(args.out).expanduser().resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     covers_dir = Path(args.covers_dir).expanduser().resolve() if args.covers_dir else None
 
+    # 1) build du site (sans publish ici)
     build_site(
         excel_path=excel_path,
         out_dir=out_dir,
         covers_dir=covers_dir,
         validate_only=args.validate_only,
         new_months=args.new_months,
-        publish=args.publish_ftp,
+        publish=False,  # IMPORTANT
     )
+
+    # 2) export ONIX (ICI)
+    if args.export_onix:
+        from export_onix import export_onix_from_excel
+        import os  # assure-toi que c'est aussi importé en haut du fichier si tu préfères
+
+        onix_out = args.onix_out or str(out_dir / "onix" / "purh_onix.xml")
+        report = args.onix_report or str(out_dir / "onix" / "purh_onix_QA.csv")
+        os.makedirs(str(Path(onix_out).parent), exist_ok=True)
+
+        export_onix_from_excel(
+            excel_path=str(excel_path),
+            out_xml_path=onix_out,
+            strict=args.onix_strict,
+            report_csv_path=report,
+        )
+        print(f"ONIX écrit : {onix_out}")
+        print(f"QA écrit   : {report}")
+
     print(f"OK -> {out_dir}")
     print(f"- validation.csv : {out_dir / 'validation.csv'}")
     print(f"- catalogue.json : {out_dir / 'assets' / 'catalogue.json'}")
+
+    # 3) publication FTP (après ONIX)
     if args.publish_ftp:
+        wb = pd.ExcelFile(excel_path)
+        cfg = load_config(wb, "CONFIG")
+        if args.new_months is not None:
+            cfg.new_months = int(args.new_months)
+        publish_ftp(cfg, out_dir)
         print("FTP : publication terminée (si aucun message d'erreur).")
+
 
 if __name__ == "__main__":
     main()
