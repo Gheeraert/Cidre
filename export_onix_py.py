@@ -1,3 +1,8 @@
+# Générateur de site statique de maison d'édition scientifique et / ou indépendante
+# © 2025 Tony Gheeraert - Licence MIT (voir LICENSE)
+# Crédits : PURH + Chaire d'excellence édition numérique de l'université de Rouen
+# Fichier des exports Onix
+#
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
