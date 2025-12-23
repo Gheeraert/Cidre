@@ -1,7 +1,9 @@
 MIT License
 
-Copyright (c) 2025 Tony Gheeraert
+Copyright (c) 2025 Tony Gheeraert (concepteur)
+
 Presses universitaires de Rouen et du Havre (PURH)
+
 Chaire d'excellence en édition numérique
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
