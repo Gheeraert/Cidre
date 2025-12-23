@@ -1,6 +1,8 @@
 MIT License
 
-Copyright (c) 2025 Presses universitaires de Rouen et du Havre (PURH)
+Copyright (c) 2025 Tony Gheeraert
+Presses universitaires de Rouen et du Havre (PURH)
+Chaire d'excellence en édition numérique
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
