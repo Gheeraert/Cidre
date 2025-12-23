@@ -1,5 +1,6 @@
-# CIDRE - Catalogue Internet - Documentation - Recherche - Edition
+# CIDRE
 **Générateur de site statique pour maisons d'édition scientifiques (ou indépendantes)**
+**Catalogue Internet - Documentation - Recherche - Edition**
 
 Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site HTML complet (catalogue, pages “collections”, “revues”, pages fixes, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.)
 
