@@ -72,6 +72,12 @@ python -m http.server 8000 --directory dist
 
 Puis visitez : `http://localhost:8000`
 
+## Lancement facile par interface graphique
+- Depuis un IDE comme Pycharm, lancez l'interface graphique tkinter avec gui_tk.txt
+- Remplir la boîte de dialogue (chemin du fichier tableur, chemin du dossier de couvertures, cases à cocher)
+- Générer le site
+- Un petit serveur se lance et la page d'accueil s'ouvre automatiquement
+
 ---
 
 ## Commandes principales
