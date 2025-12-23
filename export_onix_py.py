@@ -226,7 +226,9 @@ def export_onix_from_excel(
     for idx, row in df.iterrows():
         active_raw = row.get("active_onix")
         if clean_text(active_raw) is None:
-            active_raw = row.get("active_site", True)
+            active_raw = row.get("active_site")
+        if clean_text(active_raw) is None:
+            active_raw = True  # défaut si rien n’est renseigné
 
         active = truthy(active_raw)
         if not active:
