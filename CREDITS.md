@@ -1,8 +1,11 @@
 # Crédits
 
 **Projet** : générateur de site statique (Excel → HTML) pour maison d’édition académique.  
+
 **Conception** : Tony Gheeraert
+
 **Rattachement institutionnel** : Presses universitaires de Rouen et du Havre (PURH) et Chaire d'excellence édition numérique (CEEN)
+
 **Contributions** : voir l’historique Git (`git log`) et la liste des contributeurs GitHub.
 
 ## Remerciements / sources d’inspiration
