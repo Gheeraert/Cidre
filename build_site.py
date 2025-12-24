@@ -458,6 +458,61 @@ footer .wrap { color:#666; font-size: 0.9rem; padding-top: 18px; padding-bottom:
   text-decoration: none;
 }
 
+.brand-sub { 
+  color: rgba(255,255,255,0.90);
+  font-size: 1.10rem;
+  font-style: italic;
+  font-weight: 400;
+  margin-top: 3px;
+}
+
+/* Ligne slogan + recherche */
+.brand-subrow{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:12px;
+}
+
+/* Le slogan occupe l'espace dispo */
+.brand-subtitle-text{
+  flex: 1 1 auto;
+  min-width: 18ch;     /* évite l’écrasement sur certaines largeurs */
+}
+
+/* Le bloc "Rechercher : 🔍" part à droite */
+.brand-search-wrap{
+  margin-left: auto;   /* <-- la clé */
+  padding-left: 24px;  /* <-- espace “respirant” après le slogan */
+  white-space: nowrap; /* évite le retour à la ligne au milieu */
+  font-style: normal;
+}
+
+
+
+/* Mobile : réduire le bandeau pour rendre le scroll confortable */
+@media (max-width: 720px){
+  header .wrap{ padding: 8px 12px; }
+  .brand-title{ font-size: 1.15rem; }
+  .brand-sub{ font-size: 0.95rem; margin-top: 2px; }
+  .brand-logos img{ height: 28px !important; } /* override la hauteur config */
+
+  /* Menu sur 1 ligne, scrollable horizontalement */
+  .nav{
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  /* Option : gagner encore + de place */
+  /* .brand-subtitle-text{ display:none; } */
+}
+
+
 hr { border:0; border-top:1px solid #e6e6e6; margin: 18px 0; }
 .kv { display:grid; grid-template-columns: 150px 1fr; gap: 10px 14px; margin: 14px 0; }
 .k { color:#555; }
@@ -861,32 +916,32 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
   <div class="wrap">
     <div class="brand">
       <div class="brand-left">
-        <div class="brand-logos">{left}</div>   
+        <div class="brand-logos">{left}</div>
+
         <div class="brand-text">
-            <div class="brand-title">{e(cfg.site_title)}</div>
-            <div class="brand-sub">
-                <span class="brand-subtitle-text">{e(cfg.site_subtitle)}</span>
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-                Rechercher : 
-                <a href="{rel}/catalogue.html"
-                    class="brand-search"
-                    title="Rechercher dans le catalogue"
-                    aria-label="Rechercher dans le catalogue">🔍</a>
+          <div class="brand-title">{e(cfg.site_title)}</div>
+
+          <div class="brand-sub">
+            <div class="brand-subrow">
+              <span class="brand-subtitle-text">{e(cfg.site_subtitle)}</span>
+              <span class="brand-search-wrap">
+                Rechercher :
+                <a href="{rel}/catalogue.html" class="brand-search"
+                   title="Rechercher dans le catalogue"
+                   aria-label="Rechercher dans le catalogue">🔍</a>
+              </span>
             </div>
+          </div>
         </div>
-        
-        
       </div>
+
       <div class="brand-logos">{right}</div>
     </div>
+
     <nav class="nav">{nav}</nav>
   </div>
 </header>
+
 <main class="wrap">
 {body_html}
 </main>
