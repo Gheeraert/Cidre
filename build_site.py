@@ -51,6 +51,56 @@ except Exception:  # pragma: no cover
 # -------------------------
 # Utils
 # -------------------------
+def render_contacts_block(contacts: pd.DataFrame, heading: str = "Nous contacter") -> str:
+    cards = []
+    if not contacts.empty:
+        df = contacts.copy()
+        df["is_active"] = df.get("is_active", 1).apply(norm_bool)
+        df = df[df["is_active"]].copy()
+        if "order" in df.columns:
+            df = df.sort_values("order")
+
+        for _, r in df.iterrows():
+            label = as_str(r.get("label"))
+            name = as_str(r.get("name"))
+            role = as_str(r.get("role"))
+            email_ = as_str(r.get("email"))
+            phone = as_str(r.get("phone"))
+            addr = as_str(r.get("address"))
+
+            lines = []
+            if name:
+                lines.append(f"<div><strong>{e(name)}</strong></div>")
+            if role:
+                lines.append(f"<div class='small'>{e(role)}</div>")
+            if email_:
+                lines.append(f"<div class='small'><a href='mailto:{e(email_)}'>{e(email_)}</a></div>")
+            if phone:
+                lines.append(f"<div class='small'>{e(phone)}</div>")
+            if addr:
+                lines.append(f"<div class='small'>{e(addr)}</div>")
+
+            badge = f"<div class='badge'>{e(label)}</div>" if label else ""
+            cards.append(f"<div class='card'><div class='meta'>{badge}{''.join(lines)}</div></div>")
+
+    if not cards:
+        return f"<h3>{e(heading)}</h3><p class='small'>Aucun contact renseigné.</p>"
+
+    return f"<h3>{e(heading)}</h3><div class='grid'>{''.join(cards)}</div>"
+
+ALLOWED_COVER_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+AVAILABLE_COVERS: set[str] = set()
+
+def compute_available_covers(out_dir: Path) -> set[str]:
+    p = out_dir / "covers"
+    if not p.exists():
+        return set()
+    return {
+        f.name
+        for f in p.iterdir()
+        if f.is_file() and f.suffix.lower() in ALLOWED_COVER_EXTS
+    }
+
 def is_na(v: Any) -> bool:
     try:
         return v is None or pd.isna(v)
@@ -415,6 +465,10 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
 """
 
 DEFAULT_JS = r"""
+const PAGE_SIZE = 60;
+let limit = PAGE_SIZE;
+let timer = null;
+
 async function loadCatalogue() {
   const res = await fetch("./assets/catalogue.json");
   return await res.json();
@@ -423,8 +477,18 @@ function esc(s){return String(s||"")
   .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
   .replaceAll('"',"&quot;").replaceAll("'","&#039;");}
 function normalize(s){return (s||"").toLowerCase().trim();}
+
 function card(r){
-  const cover = r.cover ? `<img class="cover" src="./covers/${esc(r.cover)}" alt="" onerror="this.style.display='none'">` : `<div class="cover"></div>`;
+  const cover = r.cover
+    ? `<img class="cover"
+        src="./covers/${esc(r.cover)}"
+        alt=""
+        loading="lazy"
+        decoding="async"
+        fetchpriority="low"
+        onerror="this.style.display='none'">`
+    : `<div class="cover"></div>`;
+
   const physical = r.physical ? `<div class="small">${esc(r.physical)}</div>` : "";
   const subtitle = r.subtitle ? `<div class="book-subtitle">${esc(r.subtitle)}</div>` : "";
   const credit = r.credit ? `<div class="book-credit">${esc(r.credit)}</div>` : "";
@@ -436,6 +500,7 @@ function card(r){
   const price = r.price ? `<div class="small">Prix : ${esc(r.price)}</div>` : "";
   const avail = r.availability ? `<div class="small">${esc(r.availability)}</div>` : "";
   const excerpt = r.excerpt ? `<div class="small">${esc(r.excerpt)}</div>` : "";
+
   return `<div class="card">
     ${cover}
     <div class="meta">
@@ -448,6 +513,7 @@ function card(r){
     </div>
   </div>`;
 }
+
 function buildOptions(values, placeholder){
   const opts = [`<option value="">${esc(placeholder)}</option>`];
   for(const v of values){ opts.push(`<option value="${esc(v)}">${esc(v)}</option>`); }
@@ -467,6 +533,7 @@ function filterRecs(recs, q, col, fmt, year){
     return hay.includes(Q);
   });
 }
+
 async function main(){
   const recs = await loadCatalogue();
   const q = document.getElementById("q");
@@ -475,6 +542,7 @@ async function main(){
   const selCol = document.getElementById("f_collection");
   const selFmt = document.getElementById("f_format");
   const selYear = document.getElementById("f_year");
+  const more = document.getElementById("more");
 
   const cols = uniqueSorted(recs.map(r=>r.collection));
   const fmts = uniqueSorted(recs.map(r=>r.format));
@@ -487,13 +555,36 @@ async function main(){
   function render(){
     const filtered = filterRecs(recs, q.value, selCol.value, selFmt.value, selYear.value);
     count.textContent = String(filtered.length);
-    out.innerHTML = filtered.map(card).join("");
+
+    const shown = filtered.slice(0, limit);
+    out.innerHTML = shown.map(card).join("");
+
+    if(more){
+      more.style.display = (filtered.length > limit) ? "inline-block" : "none";
+    }
   }
-  [q, selCol, selFmt, selYear].forEach(el=>el.addEventListener("input", render));
+
+  function scheduleRender(resetLimit){
+    if(resetLimit) limit = PAGE_SIZE;
+    if(timer) clearTimeout(timer);
+    timer = setTimeout(()=>{ timer=null; render(); }, 140);
+  }
+
+  [q, selCol, selFmt, selYear].forEach(el=>el.addEventListener("input", ()=>scheduleRender(true)));
+
+  if(more){
+    more.addEventListener("click", (e)=>{
+      e.preventDefault();
+      limit += PAGE_SIZE;
+      render();
+    });
+  }
+
   render();
 }
 main();
 """
+
 
 LIGHTBOX_HTML = r"""
 <div id="lightbox" class="lightbox" aria-hidden="true">
@@ -594,7 +685,7 @@ class SiteConfig:
     order_mail_subject: str = "Commande"
     order_mail_body: str = "Bonjour,\n\nJe souhaite commander : {title} ({id13}).\n\nMerci."
 
-    # Menu
+    # Menu - plusieurs actuellement inactifs mais utilisables
     menu_label_presentation: str = "Présentation"
     menu_label_soumettre: str = "Soumettre un manuscrit"
     menu_label_a_paraitre: str = "À paraître"
@@ -602,7 +693,7 @@ class SiteConfig:
     menu_label_revues: str = "Revues"
     menu_label_collections: str = "Collections"
     menu_label_open_access: str = "Open Access"
-    menu_label_commandes: str = "Commandes"
+    menu_label_commandes: str = "Commandes/contacts"
     menu_label_actualites: str = "Actualités"
 
     # FTP publish (optionnel)
@@ -718,15 +809,15 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
     nav = "\n".join([
         nav_link(f"{rel}/index.html", "Accueil", "home"),
         nav_link(f"{rel}/presentation.html", cfg.menu_label_presentation, "presentation"),
-        nav_link(f"{rel}/soumettre-un-manuscrit.html", cfg.menu_label_soumettre, "soumettre"),
+        # nav_link(f"{rel}/soumettre-un-manuscrit.html", cfg.menu_label_soumettre, "soumettre"),
         nav_link(f"{rel}/catalogue.html", cfg.menu_label_catalogue, "catalogue"),
         nav_link(f"{rel}/a-paraitre.html", cfg.menu_label_a_paraitre, "a_paraitre"),
         nav_link(f"{rel}/collections/index.html", cfg.menu_label_collections, "collections"),
         nav_link(f"{rel}/revues/index.html", cfg.menu_label_revues, "revues"),
-        nav_link(f"{rel}/open-access.html", cfg.menu_label_open_access, "open_access"),
-        nav_link(f"{rel}/commander.html", cfg.menu_label_commandes, "commandes"),
+        # nav_link(f"{rel}/open-access.html", cfg.menu_label_open_access, "open_access"),
+        nav_link(f"{rel}/commander.html", cfg.menu_label_commandes, "commandes/contacts"),
         nav_link(f"{rel}/actualites.html", cfg.menu_label_actualites, "actualites"),
-        nav_link(f"{rel}/contact.html", "Contact", "contact"),
+        # nav_link(f"{rel}/contact.html", "Contact", "contact"),
 
         # 🔍 Loupe (à droite)
         # f'<a class="nav-search" href="{rel}/catalogue.html" title="Rechercher dans le catalogue" aria-label="Rechercher dans le catalogue">🔍</a>',
@@ -1174,13 +1265,21 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
     )
 
 def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
-    cover = as_str(r.get("cover_file"))
-    cover_html = (
-        f"<a href='#' class='cover-zoom' data-lightbox-src='../covers/{e(cover)}'>"
-        f"<img class='cover' style='width:180px;height:auto' src='../covers/{e(cover)}' alt='' "
-        f"onerror=\"this.style.display='none'\">"
-        f"</a>"
-    ) if cover else ""
+    cover = as_str(r.get("cover_file")).strip()
+
+    if cover:
+        cover = cover.replace("\\", "/").split("/")[-1]  # basename sûr
+        cover_url = f"{rel_prefix}/covers/{e(cover)}"  # PAS de replace()
+
+        cover_html = (
+            f"<a href='#' class='cover-zoom' data-lightbox-src='{cover_url}'>"
+            f"<img class='cover' style='width:180px;height:auto' src='{cover_url}' alt='' "
+            f"onerror=\"this.style.display='none'\">"
+            f"</a>"
+        )
+    else:
+        cover_html = ""
+
     subtitle = as_str(r.get("sous_titre_norm"))
     credit = as_str(r.get("credit_ligne"))
     collection = as_str(r.get("collection"))
@@ -1278,7 +1377,9 @@ def build_catalogue_page(cfg: SiteConfig, out_dir: Path) -> None:
 
 <p class="small"><span id="count"></span> résultat(s)</p>
 <div id="out" class="grid"></div>
-
+<p style="margin-top:12px">
+  <a id="more" class="btn" href="#">Afficher plus</a>
+</p>
 <script>{DEFAULT_JS}</script>
 """
     write_file(out_dir / "catalogue.html", page_shell(cfg, f"{cfg.site_title} — {cfg.menu_label_catalogue}", "catalogue", body, "."))
@@ -1596,7 +1697,7 @@ def build_contacts(cfg: SiteConfig, contacts: pd.DataFrame, out_dir: Path) -> No
 
     write_file(out_dir / "contact.html", page_shell(cfg, f"{cfg.site_title} — Contact", "contact", body, "."))
 
-def build_pages(cfg: SiteConfig, pages: pd.DataFrame, out_dir: Path) -> None:
+def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, out_dir: Path) -> None:
     if pages.empty:
         for slug, title, key in [("open-access", cfg.menu_label_open_access, "open_access"),
                                 ("actualites", cfg.menu_label_actualites, "actualites")]:
@@ -1629,6 +1730,9 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, out_dir: Path) -> None:
         }
 
         key = KEY_BY_SLUG.get(slug, "home")
+
+        if slug in {"commander", "commandes"}:
+            body += "<hr>\n" + render_contacts_block(contacts, heading="Nous contacter")
 
         write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
 
@@ -1806,12 +1910,20 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     else:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    # assets + catalogue.json
     (out_dir / "assets").mkdir(parents=True, exist_ok=True)
-    build_catalogue_json(books, out_dir)
+    (out_dir / "covers").mkdir(parents=True, exist_ok=True)
 
+    # covers (copie d'abord pour savoir ce qui existe vraiment)
     if covers_dir:
         copy_covers(covers_dir, out_dir)
+
+    # inventaire des covers réellement présentes dans dist/covers
+    global AVAILABLE_COVERS
+    AVAILABLE_COVERS = compute_available_covers(out_dir)
+
+    # catalogue.json (ne listera que les covers existantes)
+    build_catalogue_json(books, out_dir)
+
 
     # copy logos/favicon/pdf if declared
     copy_declared_assets(excel_path, out_dir, cfg)
@@ -1835,12 +1947,12 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     home_books = pd.concat([recent, featured], ignore_index=True).drop_duplicates(subset=["slug"])
 
     # Build pages
-    build_pages(cfg, pages, out_dir)
+    build_pages(cfg, pages, contacts, out_dir)
     build_home(cfg, home_books, out_dir)
     build_catalogue_page(cfg, out_dir)
     build_new_titles(cfg, recent, out_dir, new_months)
     build_upcoming_page(cfg, upcoming, out_dir)
-    build_contacts(cfg, contacts, out_dir)
+    # build_contacts(cfg, contacts, out_dir)
 
     build_book_pages(cfg, books, out_dir)
     build_collections(cfg, books, collections, out_dir)
