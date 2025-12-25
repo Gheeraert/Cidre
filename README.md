@@ -3,12 +3,15 @@
 
 **Catalogue Internet - Documentation - Recherche - Edition**
 
-Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site statique HTML complet (catalogue, pages “collections”, “revues”, pages fixes, couvertures, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.)
+Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site statique HTML complet (catalogue, pages “collections”, “revues”, pages fixes, couvertures, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.).
 
 L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **flux éditorial** maîtrisé (le tableur fait office de fichier de référence Single Source Publishing).
 
 **Principe**
-Un clic sur une boîte de dialogue déploie un site complet de maison d'édition, à partir d'un seul fichier tableur correctement structuré et rempli
+Un clic sur une boîte de dialogue déploie un site complet de maison d'édition, à partir d'un seul fichier tableur correctement structuré et rempli.
+
+Le principe est inspiré du Pressoir, générateur en production aux Presses de Montréal et aux Presses universitaires de Rouen et du Havre: https://www.arthurperret.fr/veille/2023-12-24-le-pressoir.html
+
 ---
 
 ## Fonctionnalités
