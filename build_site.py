@@ -897,7 +897,7 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
         return f'<a class="{cls}" href="{href}">{e(label)}</a>'
 
     nav = "\n".join([
-        nav_link(f"{rel}/index.html", "Accueil", "home"),
+        nav_link(f"{rel}/index.html", "Nouveautés", "home"),
         nav_link(f"{rel}/presentation.html", cfg.menu_label_presentation, "presentation"),
         # nav_link(f"{rel}/soumettre-un-manuscrit.html", cfg.menu_label_soumettre, "soumettre"),
         nav_link(f"{rel}/catalogue.html", cfg.menu_label_catalogue, "catalogue"),
@@ -1527,7 +1527,7 @@ def build_upcoming_page(cfg: SiteConfig, upcoming: pd.DataFrame, out_dir: Path) 
 
     body = f"""
 <h2>{e(title)}</h2>
-<p class="small">Titres dont la date de parution est future, ou non renseignée.</p>
+<p class="small">Prochainement en librairie !</p>
 <div class="grid">
 {chr(10).join(cards)}
 </div>
@@ -1654,7 +1654,7 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         lis.append(f'<li><a href="./{e(c.get("slug") or c.get("collection_id"))}.html">{e(c.get("name"))}</a></li>')
     body = f"""
 <h2>{e(cfg.menu_label_collections)}</h2>
-<p class="small">Liste des collections (pages générées depuis l’Excel).</p>
+<p class="small">Nos collections.</p>
 <ul>
 {chr(10).join(lis)}
 </ul>
