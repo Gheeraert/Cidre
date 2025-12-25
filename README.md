@@ -13,8 +13,8 @@ Un clic sur une boîte de dialogue déploie un site complet de maison d'édition
 
 ## Fonctionnalités
 
-- ✅ Génération d’un site **100% statique**
-- ✅ Lecture d’un classeur tableur structuré (onglets “CONFIG”, “PAGES”, “COLLECTIONS”, “REVUES”, “CONTACTS” + onglet catalogue)
+- Génération d’un site **100% statique**
+- Lecture d’un classeur tableur structuré (onglets “CONFIG”, “PAGES”, “COLLECTIONS”, “REVUES”, “CONTACTS” + onglet catalogue)
 - Pages générées :  
   - `index.html` (accueil)  
   - `catalogue.html` (recherche + filtres côté navigateur)  
