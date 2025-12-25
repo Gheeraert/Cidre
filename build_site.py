@@ -203,6 +203,41 @@ def clean_json_value(v: Any) -> Any:
 def e(s: Any) -> str:
     return html.escape(as_str(s), quote=True)
 
+MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+def _href_with_rel(href: str, rel: str) -> str:
+    href = (href or "").strip()
+    if not href:
+        return ""
+    # liens externes / mail / ancres : on ne touche pas
+    if re.match(r"^(https?://|mailto:|#)", href):
+        return href
+    # lien relatif : on préfixe avec rel pour que ça marche depuis /collections/, /livres/, etc.
+    rel = rel or "."
+    return f"{rel}/{href}"
+
+def footer_rich(s: Any, rel: str) -> str:
+    s = as_str(s).strip()
+    if not s:
+        return ""
+    out = []
+    pos = 0
+    for m in MD_LINK_RE.finditer(s):
+        # texte avant le lien (échappé)
+        out.append(html.escape(s[pos:m.start()], quote=False))
+        label = html.escape(m.group(1), quote=False)
+        href_raw = _href_with_rel(m.group(2), rel)
+        href = html.escape(href_raw, quote=True)
+
+        # target blank uniquement pour http(s)
+        extra = " target='_blank' rel='noopener'" if href_raw.startswith("http") else ""
+        out.append(f"<a href='{href}'{extra}>{label}</a>")
+        pos = m.end()
+
+    out.append(html.escape(s[pos:], quote=False))
+    return "".join(out).replace("\n", "<br>")
+
+
 def to_float(v: Any) -> Optional[float]:
     s = as_str(v)
     if not s:
@@ -949,10 +984,10 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
   <div class="wrap">
     <div class="footer-grid">
       <div class="footer-left">
-        {f"<div>{e(cfg.footer_text)}</div>" if cfg.footer_text else ""}
-        {f"<div>{e(cfg.footer_conceptor)}</div>" if cfg.footer_conceptor else ""}
-        {f"<div>{e(cfg.footer_copyright)}</div>" if cfg.footer_copyright else ""}
-        {f"<div>{e(cfg.footer_legal)}</div>" if cfg.footer_legal else ""}
+        {f"<div>{footer_rich(cfg.footer_text, rel)}</div>" if cfg.footer_text else ""}
+        {f"<div>{footer_rich(cfg.footer_conceptor, rel)}</div>" if cfg.footer_conceptor else ""}
+        {f"<div>{footer_rich(cfg.footer_copyright, rel)}</div>" if cfg.footer_copyright else ""}
+        {f"<div>{footer_rich(cfg.footer_legal, rel)}</div>" if cfg.footer_legal else ""}
       </div>
       <div class="footer-right">
         {(
