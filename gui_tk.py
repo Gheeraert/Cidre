@@ -4,20 +4,20 @@
 # Fichier de lancement
 #
 # gui_tk.py
-import threading
+import threading, queue
 import traceback
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 import subprocess
 import sys
 import webbrowser
 import socket
 import pandas as pd
+from ftplib import FTP, FTP_TLS, error_perm
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
 from build_site import build_site, load_config
-
 
 class App(tk.Tk):
     def __init__(self):
@@ -49,6 +49,41 @@ class App(tk.Tk):
 
         # État initial (case FTP grisée tant que la config n'est pas détectée)
         self.after(50, self.refresh_ftp_state)
+
+    def _ui_pump(self):
+        try:
+            while True:
+                evt = self._uiq.get_nowait()
+                etype = evt.get("type")
+
+                if etype == "ftp_start":
+                    self.var_status.set(f"FTP : préparation ({evt.get('total_files')} fichiers)…")
+                    self.var_prog.set(0.0)
+
+                elif etype in ("file_start", "progress", "file_done", "file_skip"):
+                    i = evt.get("i", 0);
+                    n = evt.get("n", 0)
+                    relpath = evt.get("relpath", "")
+                    sent_total = float(evt.get("sent_total", 0) or 0)
+                    total_bytes = float(evt.get("total_bytes", 1) or 1)
+                    pct = 0.0 if total_bytes <= 0 else (sent_total / total_bytes) * 100.0
+                    if pct > 100.0: pct = 100.0
+
+                    self.var_prog.set(pct)
+                    self.var_status.set(f"FTP {i}/{n} : {relpath} — {pct:.0f}%")
+
+                elif etype == "file_error":
+                    self.log(f"❌ FTP erreur sur {evt.get('relpath')}: {evt.get('error')}")
+
+                elif etype == "ftp_done":
+                    self.var_prog.set(100.0)
+                    self.var_status.set(
+                        f"FTP terminé ✅  envoyés={evt.get('uploaded')}  ignorés={evt.get('skipped')}  erreurs={evt.get('errors')}"
+                    )
+
+        except queue.Empty:
+            pass
+        self.after(100, self._ui_pump)
 
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
@@ -89,6 +124,7 @@ class App(tk.Tk):
         # FTP
         row = tk.Frame(frm)
         row.pack(fill="x", **pad)
+
         self.cb_publish_ftp = tk.Checkbutton(
             row,
             text="Publier en FTP après génération (selon l’onglet CONFIG)",
@@ -96,8 +132,17 @@ class App(tk.Tk):
             state="disabled",
         )
         self.cb_publish_ftp.pack(side="left")
+
+        # Voyant ● + texte statut
+        self.lbl_ftp_light = tk.Label(row, text="●", fg="gray")
+        self.lbl_ftp_light.pack(side="left", padx=(10, 2))
+
         self.lbl_ftp_status = tk.Label(row, text="(FTP non configuré)")
-        self.lbl_ftp_status.pack(side="left", padx=10)
+        self.lbl_ftp_status.pack(side="left", padx=(0, 10))
+
+        # Bouton test
+        self.btn_ftp_test = tk.Button(row, text="Tester", command=self.test_ftp, state="disabled")
+        self.btn_ftp_test.pack(side="left")
 
         # Serveur local
         row = tk.Frame(frm)
@@ -122,6 +167,20 @@ class App(tk.Tk):
         self.btn_server_toggle.pack(side="left", padx=8)
 
         tk.Button(row, text="Ouvrir dans le navigateur", command=self.open_in_browser).pack(side="left")
+
+        # --- Statut + jauge FTP/Build ---
+        row = tk.Frame(frm)
+        row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.var_status = tk.StringVar(value="Prêt.")
+        tk.Label(row, textvariable=self.var_status, anchor="w").pack(side="left", fill="x", expand=True)
+
+        self.var_prog = tk.DoubleVar(value=0.0)
+        self.pbar = ttk.Progressbar(row, variable=self.var_prog, maximum=100.0, mode="determinate", length=260)
+        self.pbar.pack(side="right")
+
+        self._uiq = queue.Queue()
+        self.after(100, self._ui_pump)
 
         # Log
         tk.Label(self, text="Journal :", anchor="w").pack(fill="x", padx=10, pady=(10, 0))
@@ -196,11 +255,108 @@ class App(tk.Tk):
         ok, reason = self._ftp_config_status(excel_path)
         if ok:
             self.cb_publish_ftp.config(state="normal")
-            self.lbl_ftp_status.config(text="(FTP configuré)")
+            self.btn_ftp_test.config(state="normal")
+            self._set_ftp_ui("gray", "(FTP configuré – non testé)")
         else:
             self.var_publish_ftp.set(False)
             self.cb_publish_ftp.config(state="disabled")
-            self.lbl_ftp_status.config(text=f"(FTP indisponible : {reason})")
+            self.btn_ftp_test.config(state="disabled")
+            self._set_ftp_ui("gray", f"(FTP indisponible : {reason})")
+
+    def _set_ftp_ui(self, color: str, text: str):
+        self.lbl_ftp_light.config(fg=color)
+        self.lbl_ftp_status.config(text=text)
+
+    def _ftp_try_connect(self, cfg) -> tuple[bool, str]:
+        """
+        Test réel : connect -> login -> (optionnel) cwd(remote_dir).
+        Mode 'auto' : tente FTPS explicite, si refus (500/503) bascule en FTP simple.
+        """
+        host = (getattr(cfg, "ftp_host", "") or "").strip()
+        user = (getattr(cfg, "ftp_user", "") or "").strip()
+        pw   = (getattr(cfg, "ftp_password", "") or "").strip()
+        remote_dir = (getattr(cfg, "ftp_remote_dir", "") or "").strip().rstrip(".").strip()
+
+        port = int(getattr(cfg, "ftp_port", 21) or 21)
+        passive = bool(getattr(cfg, "ftp_passive", True))
+
+        # optionnel : dans CONFIG tu pourras mettre ftp_security = auto/plain/ftps
+        security = (getattr(cfg, "ftp_security", "auto") or "auto").strip().lower()
+
+        def try_plain():
+            ftp = FTP(timeout=15)
+            ftp.connect(host, port)
+            ftp.login(user=user, passwd=pw)
+            ftp.set_pasv(passive)
+            if remote_dir:
+                ftp.cwd(remote_dir)
+            ftp.quit()
+            return True, "Connexion FTP OK"
+
+        def try_ftps_explicit():
+            ftps = FTP_TLS(timeout=15)
+            ftps.connect(host, port)
+            ftps.login(user=user, passwd=pw)  # déclenche AUTH TLS
+            # protection canal de données
+            ftps.prot_p()  # PBSZ 0 + PROT P
+            ftps.set_pasv(passive)
+            if remote_dir:
+                ftps.cwd(remote_dir)
+            ftps.quit()
+            return True, "Connexion FTPS (TLS explicite) OK"
+
+        # Choix explicite
+        if security in ("plain", "ftp"):
+            return try_plain()
+        if security in ("ftps", "tls", "explicit"):
+            return try_ftps_explicit()
+
+        # Auto : FTPS puis fallback FTP si le serveur refuse TLS
+        try:
+            return try_ftps_explicit()
+        except error_perm as e:
+            msg = str(e).lower()
+            # Tes erreurs précédentes typiques :
+            # - 500 This security scheme is not implemented
+            # - 503 PBSZ=0
+            if msg.startswith("500") or msg.startswith("503") or "security scheme" in msg or "pbsz" in msg:
+                return try_plain()
+            raise
+
+    def test_ftp(self):
+        """Lance un test de connexion FTP sans bloquer l'UI."""
+        path_str = self.var_excel.get().strip()
+        if not path_str:
+            self.var_publish_ftp.set(False)
+            self.cb_publish_ftp.config(state="disabled")
+            self.btn_ftp_test.config(state="disabled")
+            self._set_ftp_ui("gray", "(FTP indisponible : classeur non sélectionné)")
+            return
+
+        excel_path = Path(path_str).expanduser()
+        ok, reason = self._ftp_config_status(excel_path)
+        if not ok:
+            self._set_ftp_ui("red", f"(FTP indisponible : {reason})")
+            return
+
+        # UI : état "en cours"
+        self.btn_ftp_test.config(state="disabled")
+        self._set_ftp_ui("gray", "(Test FTP en cours…)")
+
+        def worker():
+            try:
+                cfg = self._read_cfg_from_excel(excel_path)
+                ok2, msg = self._ftp_try_connect(cfg)
+                if ok2:
+                    self.after(0, lambda: self._set_ftp_ui("green", f"(OK) {msg}"))
+                else:
+                    self.after(0, lambda: self._set_ftp_ui("red", f"(KO) {msg}"))
+            except Exception as e:
+                self.after(0, lambda: self._set_ftp_ui("red", f"(KO) {e}"))
+            finally:
+                self.after(0, lambda: self.btn_ftp_test.config(state="normal"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def pick_excel(self):
         path = filedialog.askopenfilename(
@@ -354,6 +510,9 @@ class App(tk.Tk):
         self.log("------------------------------------------------------------")
 
         def worker():
+            def progress_cb(evt: dict):
+                # callback appelée depuis le thread worker → on passe par la queue
+                self._uiq.put(evt)
             try:
                 build_site(
                     excel_path=excel,
@@ -362,6 +521,7 @@ class App(tk.Tk):
                     validate_only=validate_only,
                     new_months=new_months,
                     publish=publish_ftp,
+                    progress_cb=progress_cb,
                 )
                 self.after(0, lambda: self.log("✅ Terminé."))
                 self.after(0, lambda: self.log(f"→ {out_dir / 'validation.csv'}"))
@@ -382,7 +542,6 @@ class App(tk.Tk):
 
         self.stop_server()
         threading.Thread(target=worker, daemon=True).start()
-
 
 if __name__ == "__main__":
     App().mainloop()
