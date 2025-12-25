@@ -1442,7 +1442,7 @@ def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
     cards = [_book_card_html(r, ".", cfg) for _, r in df.iterrows()]
     body = f"""
 <h2>Nouveautés</h2>
-<p class="small">Sélection automatique (et/ou mise en avant manuelle).</p>
+<p class="small">Nos parutions récentes</p>
 <div class="grid">
 {chr(10).join(cards)}
 </div>
@@ -1858,9 +1858,19 @@ def build_validation_report(books: pd.DataFrame, out_dir: Path) -> None:
 # FTP publish (optionnel)
 # -------------------------
 
-def publish_ftp(cfg: SiteConfig, local_dir: Path) -> None:
-    """Publie local_dir en FTP/FTPS, en créant les dossiers distants si besoin."""
+def publish_ftp(cfg: SiteConfig, local_dir: Path, progress_cb=None) -> None:
+    """Publie local_dir en FTP/FTPS, en créant les dossiers distants si besoin.
+       progress_cb(event: dict) optionnel, appelé pendant le transfert.
+    """
     import ftplib
+    import time
+
+    def emit(**evt):
+        if progress_cb:
+            try:
+                progress_cb(evt)
+            except Exception:
+                pass
 
     host = as_str(cfg.ftp_host)
     user = as_str(cfg.ftp_user)
@@ -1871,19 +1881,12 @@ def publish_ftp(cfg: SiteConfig, local_dir: Path) -> None:
     if not host or not user or not password or not remote_dir:
         raise ValueError("FTP incomplet : renseigner ftp_host / ftp_user / ftp_password / ftp_remote_dir dans CONFIG.")
 
-    if cfg.ftp_tls:
-        ftp = ftplib.FTP_TLS()
-    else:
-        ftp = ftplib.FTP()
-
+    ftp = ftplib.FTP_TLS() if cfg.ftp_tls else ftplib.FTP()
     ftp.connect(host=host, port=port, timeout=30)
-    ftp.login(user=user, passwd=password)
-    if cfg.ftp_tls and isinstance(ftp, ftplib.FTP_TLS):
-        ftp.prot_p()
+    ftp.login(user=user, passwd=password, secure=False)
     ftp.set_pasv(bool(cfg.ftp_passive))
 
     def cwd_mkdir(path: str) -> None:
-        # Supporte /a/b/c
         parts = [p for p in path.replace("\\", "/").split("/") if p]
         if path.startswith("/"):
             ftp.cwd("/")
@@ -1894,70 +1897,96 @@ def publish_ftp(cfg: SiteConfig, local_dir: Path) -> None:
                 ftp.mkd(p)
                 ftp.cwd(p)
 
+    # --- Préparer la liste des fichiers à transférer (pour un vrai % global)
+    local_dir = local_dir.resolve()
+    files = []
+    total_bytes = 0
+
+    for root, dirs, fns in os.walk(local_dir):
+        root_p = Path(root)
+        for fn in fns:
+            if fn.lower().endswith(".log"):
+                continue
+            lp = root_p / fn
+            if not lp.is_file():
+                continue
+            sz = lp.stat().st_size
+            rel_dir = root_p.relative_to(local_dir).as_posix()
+            files.append((lp, rel_dir, fn, sz))
+            total_bytes += sz
+
+    emit(type="ftp_start", remote_dir=remote_dir, total_files=len(files), total_bytes=total_bytes)
+
+    # --- Aller dans la racine distante une fois
     cwd_mkdir(remote_dir)
 
-    # Optionnel: nettoyage (dangereux => désactivé par défaut)
-    if cfg.ftp_clean:
-        def _rm_tree():
-            # suppression récursive du répertoire courant
-            for name, facts in ftp.mlsd():
-                if name in {".", ".."}:
-                    continue
-                typ = facts.get("type", "")
-                if typ == "dir":
-                    ftp.cwd(name)
-                    _rm_tree()
-                    ftp.cwd("..")
-                    try:
-                        ftp.rmd(name)
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        ftp.delete(name)
-                    except Exception:
-                        pass
-        _rm_tree()
-
-    # Upload récursif
-    local_dir = local_dir.resolve()
     uploaded = 0
     skipped = 0
     errors = 0
+    sent_total = 0
 
-    for root, dirs, files in os.walk(local_dir):
-        root_p = Path(root)
-        rel = root_p.relative_to(local_dir).as_posix()
-        if rel and rel != ".":
-            cwd_mkdir(remote_dir.rstrip("/") + "/" + rel)
+    # Throttle UI (évite 10 000 updates/seconde)
+    last_emit = 0.0
+    def maybe_emit_progress(file_sent, file_size, idx, relpath):
+        nonlocal last_emit
+        now = time.time()
+        if now - last_emit >= 0.08:  # 80ms
+            last_emit = now
+            emit(
+                type="progress",
+                i=idx, n=len(files),
+                relpath=relpath,
+                file_sent=file_sent, file_size=file_size,
+                sent_total=sent_total, total_bytes=total_bytes
+            )
 
-        # re-cwd au bon endroit (cwd_mkdir fait déjà)
-        for fn in files:
-            lp = root_p / fn
+    for idx, (lp, rel_dir, fn, sz) in enumerate(files, start=1):
+        # Se positionner dans le bon sous-dossier distant
+        if rel_dir and rel_dir != ".":
+            cwd_mkdir(remote_dir.rstrip("/") + "/" + rel_dir)
+        else:
+            cwd_mkdir(remote_dir)
 
-            # skip server log
-            if fn.lower().endswith(".log"):
+        relpath = f"{rel_dir}/{fn}" if rel_dir and rel_dir != "." else fn
+        emit(type="file_start", i=idx, n=len(files), relpath=relpath, file_size=sz)
+
+        # Skip si même taille distante (si SIZE disponible)
+        try:
+            rsize = ftp.size(fn)
+            if rsize is not None and int(rsize) == sz:
+                skipped += 1
+                # on retire ce poids du total pour garder un % global exact
+                total_bytes -= sz
+                emit(type="file_skip", i=idx, n=len(files), relpath=relpath, file_size=sz,
+                     sent_total=sent_total, total_bytes=total_bytes)
                 continue
+        except Exception:
+            pass
 
-            # ✅ Skip si même taille distante
-            try:
-                rsize = ftp.size(fn)
-                if rsize is not None and int(rsize) == lp.stat().st_size:
-                    skipped += 1
-                    continue
-            except Exception:
-                # size() peut échouer si le fichier n'existe pas ou si le serveur ne supporte pas SIZE
-                pass
+        file_sent = 0
 
-            try:
-                with open(lp, "rb") as f:
-                    ftp.storbinary(f"STOR {fn}", f)
-                uploaded += 1
-            except Exception:
-                errors += 1
+        def cb(block: bytes):
+            nonlocal file_sent, sent_total
+            nbytes = len(block)
+            file_sent += nbytes
+            sent_total += nbytes
+            maybe_emit_progress(file_sent, sz, idx, relpath)
 
-        # remonter au remote_dir pour itération suivante
+        try:
+            with open(lp, "rb") as f:
+                ftp.storbinary(f"STOR {fn}", f, blocksize=64 * 1024, callback=cb)
+            uploaded += 1
+            emit(type="file_done", i=idx, n=len(files), relpath=relpath, file_size=sz,
+                 sent_total=sent_total, total_bytes=total_bytes)
+        except Exception as e:
+            errors += 1
+            emit(type="file_error", i=idx, n=len(files), relpath=relpath, error=str(e))
+
+        # Revenir proprement à la racine distante (évite surprises)
         cwd_mkdir(remote_dir)
+
+    emit(type="ftp_done", remote_dir=remote_dir, uploaded=uploaded, skipped=skipped, errors=errors,
+         sent_total=sent_total, total_bytes=total_bytes)
 
     print(f"FTP -> {remote_dir} : {uploaded} envoyé(s), {skipped} ignoré(s), {errors} erreur(s).")
 
@@ -1973,6 +2002,7 @@ def publish_ftp(cfg: SiteConfig, local_dir: Path) -> None:
 
 def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
                validate_only: bool = False, new_months: Optional[int] = None,
+               progress_cb=None,
                publish: bool = False) -> None:
     wb = pd.ExcelFile(excel_path)
 
@@ -2049,7 +2079,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     build_revues(cfg, revues, out_dir)
 
     if publish:
-        publish_ftp(cfg, out_dir)
+        publish_ftp(cfg, out_dir, progress_cb=progress_cb)
 
 
 def main():
