@@ -7,6 +7,8 @@ Ce dépôt contient un **générateur de site web statique** (sans base de donn�
 
 L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **flux éditorial** maîtrisé (le tableur fait office de fichier de référence Single Source Publishing).
 
+**Principe**
+Un clic sur une boîte de dialogue déploie un site complet de maison d'édition, à partir d'un seul fichier tableur correctement structuré et rempli
 ---
 
 ## Fonctionnalités
