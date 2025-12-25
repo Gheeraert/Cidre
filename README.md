@@ -36,7 +36,7 @@ Un clic sur une boîte de dialogue déploie un site complet de maison d'édition
 - Librairie pandas (pip install pandas)
 - Librairie openpyxl (pip install openpyxl
 
-> Les dépendances exactes sont définies dans `requirements.txt` (ou équivalent).
+> Les dépendances exactes sont définies dans `requirements.txt`.
 
 ---
 
