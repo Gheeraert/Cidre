@@ -3,7 +3,7 @@
 
 **Catalogue Internet - Documentation - Recherche - Edition**
 
-Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site HTML complet (catalogue, pages “collections”, “revues”, pages fixes, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.)
+Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site statique HTML complet (catalogue, pages “collections”, “revues”, pages fixes, couvertures, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.)
 
 L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **flux éditorial** maîtrisé (le tableur fait office de fichier de référence Single Source Publishing).
 
@@ -13,16 +13,16 @@ L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **
 
 - ✅ Génération d’un site **100% statique**
 - ✅ Lecture d’un classeur tableur structuré (onglets “CONFIG”, “PAGES”, “COLLECTIONS”, “REVUES”, “CONTACTS” + onglet catalogue)
-- ✅ Pages générées :  
+- Pages générées :  
   - `index.html` (accueil)  
   - `catalogue.html` (recherche + filtres côté navigateur)  
   - `nouveautes.html`, `a-paraitre.html`  
   - `collections/…`, `revues/…`  
   - pages fixes (politique éditoriale, mentions légales, etc.)
-- ✅ Export d’un `assets/catalogue.json` consommé en front (recherche / filtres / tri sans backend)
-- ✅ Gestion des couvertures (copie, fallback si manquante)
-- ✅ Mécanisme d’“activation” des titres (publication / masquage) compatible avec plusieurs versions de templates tableur
-- ✅ Option de publication (FTP) si activée dans le script / la config
+- Export d’un `assets/catalogue.json` en JSON consommé en front (recherche / filtres / tri sans backend)
+- Gestion des couvertures (copie, fallback si manquante)
+- Option de publication (FTP) si activée dans le script / la config
+- Utilisation simple : chargement de l'Excel et génération automatique depuis une interface tkinter (boîte de dialogue)
 
 ---
 
@@ -30,6 +30,9 @@ L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **
 
 - **Python 3.10+** recommandé
 - Un environnement virtuel (venv/uv/conda) est conseillé
+- Librairie markdown (pip install markdown)
+- Librairie pandas (pip install pandas)
+- Librairie openpyxl (pip install openpyxl
 
 > Les dépendances exactes sont définies dans `requirements.txt` (ou équivalent).
 
@@ -56,9 +59,11 @@ pip install -r requirements.txt
 
 1) Placez votre fichier tableur (par ex. `site_tableur_template.xlsx`) à la racine ou dans `data/`.
 
-2) Placez les couvertures dans un dossier (ex. `covers/`).
+2) Placez les logos mentionnés dans la feuille "config" du tableur dans le même répertoire que le fichier tableur
 
-3) Lancez la génération :
+3) Placez les couvertures dans un dossier (ex. `covers/`).
+
+4) Lancez la génération. Soit vous utiliser l'interface graphique gui_tk.py, soit ainsi:
 
 ```bash
 python build_site.py --tableur purh_site_tableur_template_v2.xlsx --out dist --covers-dir covers
@@ -73,10 +78,13 @@ python -m http.server 8000 --directory dist
 Puis visitez : `http://localhost:8000`
 
 ## Lancement facile par interface graphique
-- Depuis un IDE comme Pycharm, lancez l'interface graphique tkinter avec gui_tk.txt
-- Remplir la boîte de dialogue (chemin du fichier tableur, chemin du dossier de couvertures, cases à cocher)
-- Générer le site
-- Un petit serveur se lance et la page d'accueil s'ouvre automatiquement
+1. Depuis un IDE comme Pycharm, lancez l'interface graphique tkinter avec gui_tk.txt
+
+2. Remplir la boîte de dialogue (chemin du fichier tableur, chemin du dossier de couvertures, cases à cocher)
+
+3. Générer le site
+
+4. Un petit serveur se lance et la page d'accueil s'ouvre automatiquement
 
 ---
 
@@ -90,7 +98,7 @@ python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers
 
 ### Publication (optionnelle)
 
-Si le script propose une option de publication :
+Si la feuille "config" propose des informations de publication FTP :
 
 ```bash
 python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers --publish-ftp
@@ -115,14 +123,11 @@ Les onglets “éditoriaux” pilotent la navigation et les contenus fixes ; l�
 - **CONTACTS** : adresses, réseaux sociaux, informations institutionnelles
 - **CATALOGUE** (nom libre) : liste des titres (une ligne = un livre)
 
-> Le script peut chercher automatiquement “le bon onglet catalogue” selon une convention (ou via CONFIG).  
-> Si vous avez plusieurs onglets de titres, adoptez une règle claire (ex. un seul onglet “CATALOGUE” publié).
+> Le script peut chercher automatiquement “le bon onglet catalogue” selon une convention (ou via CONFIG). Mais d'une façon générale ne changez pas la structure du tableur.
 
 ---
 
 ## Colonnes catalogue (principes)
-
-Le générateur vise la robustesse : il tolère plusieurs “générations” de colonnes, avec alias et fallback.
 
 ### Identifiants & URLs
 - `id13` : identifiant interne (stable)
@@ -259,11 +264,6 @@ Les contributions sont bienvenues (issues, PR) :
 2. Ajoutez des tests si pertinent
 3. Décrivez clairement l’impact (données / thème / compatibilité tableur)
 
-Recommandations (si en place dans le repo) :
-- formatage : `black`
-- lint : `ruff`
-- validation : exécuter une génération complète avant PR
-
 ---
 
 ## Sécurité / données
@@ -292,5 +292,5 @@ Voir fichier Licence
 
 ## Crédits
 
-Développé par les Presses universitaires de Rouen et du Havre et la Chaire d'excellence en édition numérique, pour un usage “presses universitaires” avec une logique **générique** :  
+Développé par Tony Gheeraert pour les Presses universitaires de Rouen et du Havre et dans le cadre de la Chaire d'excellence en édition numérique, pour un usage “presses universitaires” avec une logique **générique** :  
 données dans tableur, génération statique, déploiement simple, maintenance pérenne.
