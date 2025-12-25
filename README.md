@@ -1,5 +1,5 @@
 # CIDRE
-**Générateur de site statique pour maisons d'édition scientifiques (ou indépendantes)**
+**Générateur de site statique pour maisons d'édition scientifique (ou indépendantes)**
 
 **Catalogue Internet - Documentation - Recherche - Edition**
 
