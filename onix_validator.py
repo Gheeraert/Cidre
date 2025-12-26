@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Tool. Validateur de fichier Onix 
 
 import csv
 import queue
