@@ -17,7 +17,8 @@ import pandas as pd
 from ftplib import FTP, FTP_TLS, error_perm
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
-from build_site import build_site, load_config
+from build_site import build_site, load_config, publish_ftp, detect_books_sheet
+from export_onix_py import export_onix_from_excel
 
 class App(tk.Tk):
     def __init__(self):
@@ -30,6 +31,7 @@ class App(tk.Tk):
         self.var_out = tk.StringVar(value=str(Path.cwd() / "dist"))
         self.var_covers = tk.StringVar(value="")
         self.var_validate_only = tk.BooleanVar(value=False)
+        self.var_export_onix = tk.BooleanVar(value=False)
 
         # Publication FTP
         self.var_publish_ftp = tk.BooleanVar(value=False)
@@ -113,13 +115,28 @@ class App(tk.Tk):
         tk.Button(row, text="Choisir…", command=self.pick_covers).pack(side="left")
 
         # Options
+        # Options (sur 2 lignes pour éviter le débordement)
         row = tk.Frame(frm)
         row.pack(fill="x", **pad)
         tk.Checkbutton(
             row,
             text="Validation seulement (ne génère que validation.csv + catalogue.json)",
-            variable=self.var_validate_only
-        ).pack(side="left")
+            variable=self.var_validate_only,
+            anchor="w",
+            justify="left",
+            wraplength=820,  # ajuste si tu changes la largeur fenêtre
+        ).pack(side="top", anchor="w", fill="x")
+
+        row = tk.Frame(frm)
+        row.pack(fill="x", **pad)
+        tk.Checkbutton(
+            row,
+            text="Générer l’export ONIX (onix/purh_onix.xml + onix/purh_onix_QA.csv)",
+            variable=self.var_export_onix,
+            anchor="w",
+            justify="left",
+            wraplength=820,
+        ).pack(side="top", anchor="w", fill="x")
 
         # FTP
         row = tk.Frame(frm)
@@ -486,10 +503,11 @@ class App(tk.Tk):
         except Exception:
             new_months = 6
 
-        publish_ftp = bool(self.var_publish_ftp.get())
+        do_publish_ftp = bool(self.var_publish_ftp.get())
+        export_onix = bool(self.var_export_onix.get())
 
         # Vérification FTP au dernier moment (au cas où le fichier CONFIG a été modifié)
-        if publish_ftp:
+        if do_publish_ftp:
             ftp_ok, ftp_reason = self._ftp_config_status(excel)
             if not ftp_ok:
                 self.refresh_ftp_state()
@@ -506,7 +524,8 @@ class App(tk.Tk):
         self.log(f"Sortie   : {out_dir}")
         self.log(f"Covers   : {covers if covers else '(aucun)'}")
         self.log(f"Mode     : {'validation seulement' if validate_only else 'génération complète'}")
-        self.log(f"FTP      : {'oui' if publish_ftp else 'non'}")
+        self.log(f"FTP      : {'oui' if do_publish_ftp else 'non'}")
+        self.log(f"ONIX     : {'oui' if export_onix else 'non'}")
         self.log("------------------------------------------------------------")
 
         def worker():
@@ -520,12 +539,47 @@ class App(tk.Tk):
                     covers_dir=covers,
                     validate_only=validate_only,
                     new_months=new_months,
-                    publish=publish_ftp,
+                    # code changé pour brancher la sortie onix d'abord
+                    # on publie plus tard
+                    # publish=do_publish_ftp,
+                    publish=False,
                     progress_cb=progress_cb,
                 )
                 self.after(0, lambda: self.log("✅ Terminé."))
                 self.after(0, lambda: self.log(f"→ {out_dir / 'validation.csv'}"))
                 self.after(0, lambda: self.log(f"→ {out_dir / 'assets' / 'catalogue.json'}"))
+
+                if export_onix:
+                    try:
+                        wb = pd.ExcelFile(excel)
+                        cfg_onix = load_config(wb, "CONFIG")
+                        sheet_master = detect_books_sheet(wb, getattr(cfg_onix, "books_sheet", "") or "")
+
+                        onix_dir = out_dir / "onix"
+                        onix_dir.mkdir(parents=True, exist_ok=True)
+
+                        onix_xml = onix_dir / "purh_onix.xml"
+                        onix_report = onix_dir / "purh_onix_QA.csv"
+
+                        export_onix_from_excel(
+                            excel_path=str(excel),
+                            out_xml_path=str(onix_xml),
+                            sheet_master=sheet_master,
+                            strict=False,
+                            report_csv_path=str(onix_report),
+                        )
+
+                        self.after(0, lambda: self.log(f"→ {onix_xml}"))
+                        self.after(0, lambda: self.log(f"→ {onix_report}"))
+                    except Exception as e:
+                        self.after(0, lambda: self.log(f"❌ Erreur ONIX : {e}"))
+
+                # =========================================================
+                # (ÉTAPE 4) FTP : à faire APRÈS l’ONIX pour qu’il soit uploadé
+                # =========================================================
+                if do_publish_ftp:
+                    cfg_publish = self._read_cfg_from_excel(excel)
+                    publish_ftp(cfg_publish, out_dir, progress_cb=progress_cb)
 
                 if (not validate_only) and bool(self.var_start_server.get()):
                     port = int(self.var_port.get())
