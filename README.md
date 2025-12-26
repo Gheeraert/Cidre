@@ -16,6 +16,7 @@ Le principe est inspiré du Pressoir, générateur en production aux Presses de 
 **Exemple en production**
 Site des Presses universitaires de Rouen et du Havre
 http://purh.ovh
+
 ---
 
 ## Fonctionnalités
