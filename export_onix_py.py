@@ -1,17 +1,29 @@
-# Générateur de site statique de maison d'édition scientifique et / ou indépendante
-# © 2025 Tony Gheeraert - Licence MIT (voir LICENSE)
-# Crédits : PURH + Chaire d'excellence édition numérique de l'université de Rouen
-# Fichier des exports Onix
-#
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+"""Export ONIX 3.0 (reference tags) depuis un Excel PURH.
+
+Objectifs :
+- Produire un ONIX conforme au schéma ONIX 3.0 (XSD reference).
+- Rester robuste face aux masters incomplets (prix manquants, mesures vides, etc.).
+
+Notes de conformité (points souvent bloquants) :
+- DescriptiveDetail : ordre strict (mesures AVANT titres / contributeurs).
+- Authorship : au moins un <Contributor> OU <NoContributor/>.
+- SupplyDetail : <Supplier> attendu avant <ProductAvailability>.
+- SupplyDetail : un item doit être "priced" (<Price>) OU "unpriced" (<UnpricedItemType>).
+- Price : si <Tax> présent, il doit être placé AVANT <CurrencyCode> et contenir
+  soit <TaxAmount>, soit <TaxRatePercent> (cf. XSD).
+- SupportingResource/ResourceLink : URI sans espaces.
+
+© 2025 Tony Gheeraert - Licence MIT (voir LICENSE)
+"""
 
 from __future__ import annotations
 
 import math
 import re
 import datetime as dt
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -24,6 +36,10 @@ ET.register_namespace("", NS)
 
 def q(tag: str) -> str:
     return f"{{{NS}}}{tag}"
+
+
+def is_nan(x: Any) -> bool:
+    return isinstance(x, float) and math.isnan(x)
 
 
 def truthy(x: Any) -> bool:
@@ -62,6 +78,7 @@ def isbn13_digits(x: Any) -> Optional[str]:
 
     s = re.sub(r"\D", "", s)
     return s if len(s) == 13 else None
+
 
 def date_to_yyyymmdd(x: Any) -> Optional[str]:
     if x is None:
@@ -105,10 +122,9 @@ def split_codes(s: Any) -> List[str]:
 
 
 def parse_contributors(raw: Any) -> List[Dict[str, Any]]:
-    """
-    Attend un format type:
-      "Atherton, Stan, B01; Leclaire, Jacques, B01"
-    -> PersonNameInverted + ContributorRole(s)
+    """Format attendu :
+
+    "Atherton, Stan, B01; Leclaire, Jacques, B01" -> PersonNameInverted + ContributorRole(s)
     """
     raw = clean_text(raw)
     if not raw:
@@ -129,9 +145,7 @@ def parse_contributors(raw: Any) -> List[Dict[str, Any]]:
 
 
 def availability_to_code(label: Any) -> str:
-    """
-    Mapping “humain” -> ONIX List 65 (très simple, améliorable ensuite).
-    """
+    """Mapping “humain” -> ONIX List 65 (simple)."""
     s = (clean_text(label) or "").lower()
 
     if not s:
@@ -168,7 +182,11 @@ def indent(elem: ET.Element, level: int = 0) -> None:
 
 
 def read_config(excel_path: str, sheet: str = "CONFIG") -> Dict[str, Any]:
-    cfg_df = pd.read_excel(excel_path, sheet_name=sheet)
+    try:
+        cfg_df = pd.read_excel(excel_path, sheet_name=sheet)
+    except Exception:
+        return {}
+
     cols = [str(c).strip().lower() for c in cfg_df.columns]
 
     key_col = None
@@ -213,11 +231,17 @@ def export_onix_from_excel(
     lang = clean_text(cfg.get("onix_default_language_of_text")) or "fre"
     currency = clean_text(cfg.get("onix_default_currency")) or "EUR"
     price_type = clean_text(cfg.get("onix_default_price_type")) or "04"  # FRP including tax
+
+    # TVA : si non renseignée, on OMIT le bloc <Tax> (et on reste conforme XSD)
     tax_type = clean_text(cfg.get("onix_default_tax_type")) or "01"
     tax_rate_code = clean_text(cfg.get("onix_default_tax_rate_code")) or "R"
     tax_rate_percent = cfg.get("onix_default_tax_rate_percent")
+
     market_countries = clean_text(cfg.get("onix_default_market_countries_included")) or "FR"
     country_pub = clean_text(cfg.get("onix_country_of_publication")) or "FR"
+
+    # UnpricedItemType par défaut : 02 = "price to be announced" (honête si prix manquant)
+    unpriced_default = clean_text(cfg.get("onix_default_unpriced_item_type")) or "02"
 
     root = ET.Element(q("ONIXMessage"), {"release": release})
 
@@ -229,14 +253,14 @@ def export_onix_from_excel(
     errors: List[Tuple[int, str, str, str]] = []
 
     for idx, row in df.iterrows():
+        # activation
         active_raw = row.get("active_onix")
         if clean_text(active_raw) is None:
             active_raw = row.get("active_site")
         if clean_text(active_raw) is None:
             active_raw = True  # défaut si rien n’est renseigné
 
-        active = truthy(active_raw)
-        if not active:
+        if not truthy(active_raw):
             continue
 
         isbn = isbn13_digits(row.get("id13"))
@@ -251,13 +275,17 @@ def export_onix_from_excel(
 
         prod = ET.SubElement(root, q("Product"))
         add_text(prod, "RecordReference", isbn)
-        add_text(prod, "NotificationType", "03")  # “update” par défaut
+        add_text(prod, "NotificationType", "03")  # update
 
         pid = ET.SubElement(prod, q("ProductIdentifier"))
         add_text(pid, "ProductIDType", "15")  # ISBN-13
         add_text(pid, "IDValue", isbn)
 
+        # ---------------------
+        # DescriptiveDetail (ordre XSD!)
+        # ---------------------
         desc = ET.SubElement(prod, q("DescriptiveDetail"))
+        add_text(desc, "ProductComposition", "00")
         add_text(desc, "ProductForm", clean_text(row.get("Code support")) or "BC")
 
         pfd = clean_text(row.get("Product form detail"))
@@ -265,6 +293,29 @@ def export_onix_from_excel(
             for code in split_codes(pfd):
                 add_text(desc, "ProductFormDetail", code)
 
+        # Mesures (à ce stade : AVANT les titres / contributeurs)
+        def add_measure(mtype: str, val: Any, unit: str) -> None:
+            if val is None or is_nan(val):
+                return
+            try:
+                v = float(val)
+            except Exception:
+                return
+            if v <= 0:
+                return
+            m = ET.SubElement(desc, q("Measure"))
+            add_text(m, "MeasureType", mtype)
+            txt = str(int(v)) if v.is_integer() else str(v).rstrip("0").rstrip(".")
+            add_text(m, "Measurement", txt)
+            add_text(m, "MeasureUnitCode", unit)
+
+        # vos valeurs sont en cm / gr
+        add_measure("02", row.get("Largeur"), "cm")
+        add_measure("01", row.get("Hauteur"), "cm")
+        add_measure("03", row.get("Epaisseur"), "cm")
+        add_measure("08", row.get("Poids"), "gr")
+
+        # Titre
         td = ET.SubElement(desc, q("TitleDetail"))
         add_text(td, "TitleType", "01")
         te = ET.SubElement(td, q("TitleElement"))
@@ -272,7 +323,7 @@ def export_onix_from_excel(
         add_text(te, "TitleText", title)
         add_text(te, "Subtitle", clean_text(row.get("sous_titre_norm")))
 
-        # Contributeurs : priorité à contributeurs_onix, sinon agrégation de colonnes rôle
+        # Contributeurs : priorité à contributeurs_onix, sinon agrégation
         contribs: List[Dict[str, Any]] = []
         if clean_text(row.get("contributeurs_onix")):
             contribs = parse_contributors(row.get("contributeurs_onix"))
@@ -281,12 +332,16 @@ def export_onix_from_excel(
                 if clean_text(row.get(col)):
                     contribs.extend(parse_contributors(row.get(col)))
 
-        for seq, c in enumerate(contribs, start=1):
-            ce = ET.SubElement(desc, q("Contributor"))
-            add_text(ce, "SequenceNumber", str(seq))
-            for rcode in c["roles"]:
-                add_text(ce, "ContributorRole", rcode)
-            add_text(ce, "PersonNameInverted", c["name_inverted"])
+        if contribs:
+            for seq, c in enumerate(contribs, start=1):
+                ce = ET.SubElement(desc, q("Contributor"))
+                add_text(ce, "SequenceNumber", str(seq))
+                for rcode in c["roles"]:
+                    add_text(ce, "ContributorRole", rcode)
+                add_text(ce, "PersonNameInverted", c["name_inverted"])
+        else:
+            # Conformité XSD : pas de contributeurs -> expliciter
+            ET.SubElement(desc, q("NoContributor"))
 
         # Langue
         lg = ET.SubElement(desc, q("Language"))
@@ -295,34 +350,16 @@ def export_onix_from_excel(
 
         # Pages
         pages = row.get("Nombre de pages (pages totales imprimées)")
-        if pages is not None and not (isinstance(pages, float) and math.isnan(pages)):
+        if pages is not None and not is_nan(pages):
             try:
                 pages_int = int(float(pages))
-                ext = ET.SubElement(desc, q("Extent"))
-                add_text(ext, "ExtentType", "00")
-                add_text(ext, "ExtentValue", str(pages_int))
-                add_text(ext, "ExtentUnit", "03")  # pages
+                if pages_int > 0:
+                    ext = ET.SubElement(desc, q("Extent"))
+                    add_text(ext, "ExtentType", "00")
+                    add_text(ext, "ExtentValue", str(pages_int))
+                    add_text(ext, "ExtentUnit", "03")  # pages
             except Exception:
                 pass
-
-        # Mesures (vos valeurs sont en cm / gr)
-        def add_measure(mtype: str, val: Any, unit: str) -> None:
-            if val is None or (isinstance(val, float) and math.isnan(val)):
-                return
-            try:
-                v = float(val)
-            except Exception:
-                return
-            m = ET.SubElement(desc, q("Measure"))
-            add_text(m, "MeasureType", mtype)
-            txt = str(int(v)) if v.is_integer() else str(v).rstrip("0").rstrip(".")
-            add_text(m, "Measurement", txt)
-            add_text(m, "MeasureUnitCode", unit)
-
-        add_measure("02", row.get("Largeur"), "cm")
-        add_measure("01", row.get("Hauteur"), "cm")
-        add_measure("03", row.get("Epaisseur"), "cm")
-        add_measure("08", row.get("Poids"), "gr")
 
         # Sujets (Thema / CLIL / BISAC) + MainSubject sur le 1er trouvé
         subjects: List[Tuple[str, str]] = []
@@ -340,7 +377,9 @@ def export_onix_from_excel(
             add_text(se, "SubjectSchemeIdentifier", scheme)
             add_text(se, "SubjectCode", code)
 
-        # Collateral: descriptions / toc / cover
+        # ---------------------
+        # CollateralDetail
+        # ---------------------
         coll = ET.SubElement(prod, q("CollateralDetail"))
 
         def add_textcontent(ttype: str, txt: Any) -> None:
@@ -348,8 +387,8 @@ def export_onix_from_excel(
             if not t:
                 return
             tc = ET.SubElement(coll, q("TextContent"))
-            add_text(tc, "TextType", ttype)          # 02/03/04
-            add_text(tc, "ContentAudience", "00")    # tout public
+            add_text(tc, "TextType", ttype)       # 02/03/04
+            add_text(tc, "ContentAudience", "00")
             add_text(tc, "Text", t)
 
         add_textcontent("02", row.get("Description courte"))
@@ -358,17 +397,24 @@ def export_onix_from_excel(
 
         cover_url = clean_text(row.get("URL image de couverture"))
         if cover_url:
-            sr = ET.SubElement(coll, q("SupportingResource"))
-            add_text(sr, "ResourceContentType", "01")  # front cover
-            add_text(sr, "ContentAudience", "00")
-            add_text(sr, "ResourceMode", "03")         # image
-            rv = ET.SubElement(sr, q("ResourceVersion"))
-            add_text(rv, "ResourceForm", "02")         # downloadable file
-            add_text(rv, "ResourceLink", cover_url)
+            ok = cover_url.startswith(("http://", "https://")) and (" " not in cover_url)
+            if ok:
+                sr = ET.SubElement(coll, q("SupportingResource"))
+                add_text(sr, "ResourceContentType", "01")  # front cover
+                add_text(sr, "ContentAudience", "00")
+                add_text(sr, "ResourceMode", "03")         # image
+                rv = ET.SubElement(sr, q("ResourceVersion"))
+                add_text(rv, "ResourceForm", "02")         # downloadable file
+                add_text(rv, "ResourceLink", cover_url)
+            else:
+                errors.append((idx, isbn, title, f"invalid cover URL (skip): {cover_url}"))
 
+        # ---------------------
         # PublishingDetail
+        # ---------------------
         pubd = ET.SubElement(prod, q("PublishingDetail"))
-        add_text(pubd, "ImprintName", imprint_name)
+        impr = ET.SubElement(pubd, q("Imprint"))
+        add_text(impr, "ImprintName", imprint_name)
 
         pub = ET.SubElement(pubd, q("Publisher"))
         add_text(pub, "PublishingRole", "01")
@@ -382,46 +428,68 @@ def export_onix_from_excel(
             add_text(pdx, "PublishingDateRole", "01")
             add_text(pdx, "Date", pub_date)
 
+        # ---------------------
         # ProductSupply
+        # ---------------------
         ps = ET.SubElement(prod, q("ProductSupply"))
         market = ET.SubElement(ps, q("Market"))
         terr = ET.SubElement(market, q("Territory"))
         add_text(terr, "CountriesIncluded", market_countries)
 
         sd = ET.SubElement(ps, q("SupplyDetail"))
+
+        # Supplier attendu AVANT ProductAvailability
+        sup = ET.SubElement(sd, q("Supplier"))
+        add_text(sup, "SupplierRole", "09")
+        add_text(sup, "SupplierName", publisher_name)
+
         avail_raw = row.get("availability")
         if clean_text(avail_raw) is None:
-            avail_raw = row.get("availability_label")  # compat anciens masters
+            avail_raw = row.get("availability_label")
         avail_code = availability_to_code(avail_raw)
         add_text(sd, "ProductAvailability", avail_code)
 
         # si “pas encore dispo” et date connue -> SupplyDateRole 08
-        if avail_code == "10" and pub_date:
-            sdate = ET.SubElement(sd, q("SupplyDate"))
-            add_text(sdate, "SupplyDateRole", "08")
-            add_text(sdate, "Date", pub_date)
-
-        # Price
+        # -------------------------
+        # Prix : Price (si valide) sinon QA (et éventuellement UnpricedItemType)
+        # -------------------------
+        # -------------------------
+        # Prix : Price OU UnpricedItemType (ne bloque pas l'export)
+        # -------------------------
         price_val = row.get("price")
         if price_val is None or (isinstance(price_val, float) and math.isnan(price_val)):
-            price_val = row.get("prix_ttc") # compat anciens masters
-        if price_val is None or (isinstance(price_val, float) and math.isnan(price_val)):
-            errors.append((idx, isbn, title, "missing price"))
+            price_val = row.get("prix_ttc")  # compat anciens masters
+
+        amt = None
+        if price_val is not None and not (isinstance(price_val, float) and math.isnan(price_val)):
+            try:
+                s = str(price_val).strip().replace("\u00a0", " ").replace(" ", "").replace(",", ".")
+                amt = float(s)
+                if math.isnan(amt) or amt <= 0:
+                    amt = None
+            except Exception:
+                amt = None
+
+        if amt is None:
+            # 1) ONIX toujours valide : on marque “prix à venir”
+            add_text(sd, "UnpricedItemType", "02")  # 02 = price to be announced
+
+            # 2) QA : on prévient sans bloquer
+            errors.append((idx, isbn, title, "WARN: missing/invalid price -> UnpricedItemType=02"))
         else:
             pe = ET.SubElement(sd, q("Price"))
             add_text(pe, "PriceType", price_type)
-            try:
-                amt = float(price_val)
-                add_text(pe, "PriceAmount", f"{amt:.2f}".rstrip("0").rstrip("."))
-            except Exception:
-                add_text(pe, "PriceAmount", str(price_val))
-            add_text(pe, "CurrencyCode", currency)
+            add_text(pe, "PriceAmount", f"{amt:.2f}".rstrip("0").rstrip("."))
 
-            tax = ET.SubElement(pe, q("Tax"))
-            add_text(tax, "TaxType", tax_type)
-            add_text(tax, "TaxRateCode", tax_rate_code)
-            if tax_rate_percent is not None and not (isinstance(tax_rate_percent, float) and math.isnan(tax_rate_percent)):
+            # Tax optionnel : si présent, XSD attend TaxAmount OU TaxRatePercent
+            if tax_rate_percent is not None and not is_nan(tax_rate_percent):
+                tax = ET.SubElement(pe, q("Tax"))
+                add_text(tax, "TaxType", tax_type)
+                add_text(tax, "TaxRateCode", tax_rate_code)
                 add_text(tax, "TaxRatePercent", str(tax_rate_percent))
+
+            # CurrencyCode après Tax
+            add_text(pe, "CurrencyCode", currency)
 
     indent(root)
     ET.ElementTree(root).write(out_xml_path, encoding="utf-8", xml_declaration=True)
