@@ -9,10 +9,8 @@ import traceback
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import subprocess
-import sys
 import webbrowser
-import socket
+from local_server import PreviewServer
 import pandas as pd
 from ftplib import FTP, FTP_TLS, error_perm
 
@@ -25,6 +23,9 @@ class App(tk.Tk):
         super().__init__()
         self.title("Générateur de site statique (Excel → HTML)")
         self.geometry("900x610")
+
+        # serveur
+        self._preview_server = None
 
         # Vars
         self.var_excel = tk.StringVar(value="")
@@ -43,8 +44,6 @@ class App(tk.Tk):
         # Serveur local
         self.var_start_server = tk.BooleanVar(value=True)
         self.var_port = tk.IntVar(value=8000)
-        self.server_proc: subprocess.Popen | None = None
-        self._server_log_handle = None
 
         # UI
         self._build_ui()
@@ -407,81 +406,78 @@ class App(tk.Tk):
     # -------------------------
     # Serveur local
     # -------------------------
-    def is_port_free(self, port: int) -> bool:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-
-    def start_server(self, out_dir: Path, port: int):
+    # -------------------------
+    # Serveur local (embarqué, compatible .exe)
+    # -------------------------
+    def start_server(self, out_dir: Path, port: int) -> str | None:
         out_dir = out_dir.resolve()
         if not out_dir.exists():
             self.log("⚠️ Le dossier de sortie n’existe pas (génère d’abord).")
-            return
+            return None
 
-        if self.server_proc and self.server_proc.poll() is None:
-            self.log("ℹ️ Serveur déjà lancé.")
-            return
-
-        if not self.is_port_free(port):
-            self.log(f"⚠️ Port {port} déjà utilisé. Choisis un autre port.")
-            return
+        # Stoppe un serveur existant
+        if self._preview_server:
+            try:
+                self._preview_server.stop()
+            except Exception:
+                pass
+            self._preview_server = None
 
         try:
-            log_path = out_dir / "server.log"
-            self._server_log_handle = open(log_path, "a", encoding="utf-8")
-            self.server_proc = subprocess.Popen(
-                [sys.executable, "-m", "http.server", str(port)],
-                cwd=str(out_dir),
-                stdout=self._server_log_handle,
-                stderr=subprocess.STDOUT,
-            )
-            self.log(f"📄 Log serveur : {log_path}")
+            srv = PreviewServer(directory=str(out_dir), host="127.0.0.1", port=int(port))
+            url = srv.start()  # peut changer de port si déjà pris
+            self._preview_server = srv
+
+            # Met à jour le port réel (si fallback automatique)
+            self.var_port.set(int(srv.port))
+
             self.btn_server_toggle.config(state="normal", text="Arrêter le serveur")
-            self.log(f"🌐 Serveur local : http://localhost:{port}/  (dossier: {out_dir})")
+            self.log(f"🌐 Serveur local : {url}  (dossier: {out_dir})")
+            return url
         except Exception as e:
-            self.server_proc = None
-            if self._server_log_handle:
-                try: self._server_log_handle.close()
-                except Exception: pass
-                self._server_log_handle = None
+            self._preview_server = None
+            self.btn_server_toggle.config(state="disabled", text="Arrêter le serveur")
             self.log(f"❌ Impossible de lancer le serveur : {e}")
+            return None
 
     def stop_server(self):
-        if not self.server_proc:
+        if not self._preview_server:
             return
         try:
-            if self.server_proc.poll() is None:
-                self.server_proc.terminate()
+            self._preview_server.stop()
         except Exception:
             pass
         finally:
-            self.server_proc = None
+            self._preview_server = None
             self.btn_server_toggle.config(state="disabled", text="Arrêter le serveur")
-            if self._server_log_handle:
-                try: self._server_log_handle.close()
-                except Exception: pass
-                self._server_log_handle = None
             self.log("🛑 Serveur arrêté.")
 
     def toggle_server(self):
-        if self.server_proc and self.server_proc.poll() is None:
+        out_dir = Path(self.var_out.get()).expanduser()
+        if self._preview_server:
             self.stop_server()
         else:
-            out_dir = Path(self.var_out.get()).expanduser()
-            port = int(self.var_port.get())
-            self.start_server(out_dir, port)
-            self.open_in_browser()
+            url = self.start_server(out_dir, int(self.var_port.get()))
+            if url:
+                webbrowser.open(url)
 
     def open_in_browser(self):
-        port = int(self.var_port.get())
-        webbrowser.open(f"http://localhost:{port}/")
+        out_dir = Path(self.var_out.get()).expanduser()
+
+        # Si déjà lancé, on ouvre l’URL réelle
+        if self._preview_server:
+            webbrowser.open(f"http://127.0.0.1:{int(self._preview_server.port)}/")
+            return
+
+        # Sinon, on démarre puis on ouvre (comportement pratique)
+        url = self.start_server(out_dir, int(self.var_port.get()))
+        if url:
+            webbrowser.open(url)
 
     def on_close(self):
         self.stop_server()
         self.destroy()
+
 
     # -------------------------
     # Build
@@ -582,9 +578,12 @@ class App(tk.Tk):
                     publish_ftp(cfg_publish, out_dir, progress_cb=progress_cb)
 
                 if (not validate_only) and bool(self.var_start_server.get()):
-                    port = int(self.var_port.get())
-                    self.after(0, lambda: self.start_server(out_dir, port))
-                    self.after(200, self.open_in_browser)
+                    def _start_and_open():
+                        url = self.start_server(out_dir, int(self.var_port.get()))
+                        if url:
+                            webbrowser.open(url)
+
+                    self.after(0, _start_and_open)
 
             except Exception:
                 err = traceback.format_exc()
