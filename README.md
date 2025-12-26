@@ -5,13 +5,17 @@
 
 Ce dépôt contient un **générateur de site web statique** (sans base de données, sans backend) destiné aux maisons d’édition académiques : à partir d’un **fichier tableur** unique (métadonnées + pages éditoriales), le script produit un site statique HTML complet (catalogue, pages “collections”, “revues”, pages fixes, couvertures, etc.), prêt à être déployé sur un serveur universitaire ou via GitHub Pages. Il gère aussi les sorties Onix pour les relations avec les diffuseurs (FMSH, AFPU, etc.).
 
-L’objectif : **sobriété**, **pérennité**, **maintenance simple**, et un **flux éditorial** maîtrisé (le tableur fait office de fichier de référence Single Source Publishing).
+**Objectif**
+Il s'agit de créer un outil souverain, léger, sans dépendance lourde, pilotable depuis un simple tableur et une boîte de dialogue, conformément à l'esprit de l'édition numérique durable et low-tech (sobriété, pérennité, maintenance facile, flux éditorial maîtrisé, single source publishing).
 
 **Principe**
 Un clic sur une boîte de dialogue déploie un site complet de maison d'édition, à partir d'un seul fichier tableur correctement structuré et rempli.
 
 Le principe est inspiré du Pressoir, générateur en production aux Presses de Montréal et aux Presses universitaires de Rouen et du Havre: https://www.arthurperret.fr/veille/2023-12-24-le-pressoir.html
 
+**Exemple en production**
+Site des Presses universitaires de Rouen et du Havre
+http://purh.ovh
 ---
 
 ## Fonctionnalités
@@ -28,6 +32,7 @@ Le principe est inspiré du Pressoir, générateur en production aux Presses de 
 - Gestion des couvertures (copie, fallback si manquante)
 - Option de publication (FTP) si activée dans le script / la config
 - Utilisation simple : chargement de l'Excel et génération automatique depuis une interface tkinter (boîte de dialogue)
+- validateur onix autonome pour vérifier la validité du fichier généré
 
 ---
 
