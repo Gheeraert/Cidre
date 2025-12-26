@@ -1,6 +1,6 @@
 # Crédits
 
-**Projet** : générateur de site statique (Excel → HTML) pour maison d’édition académique.  
+**Projet** : génération et déploiement d'un site statique complet pour maison d’édition académique, à partir d'un fichier tableur et d'une boîte de dialogue  
 
 **Conception** : Tony Gheeraert
 
@@ -11,6 +11,6 @@
 ## Remerciements / sources d’inspiration
 - Les standards et pratiques de l’édition académique (métadonnées, structuration de catalogue).
 - Les outils open source utilisés (voir `requirements.txt`).
-- Marcello Vitali-Rosati et la chaire d'excellence de Rouen (générateur de site statique "Le Pressoir", philosophie d'un numérique sobre et "low tech", json et markdown, etc.)
+- Marcello Vitali-Rosati et la chaire d'excellence Edition numérique de Rouen (générateur de site statique "Le Pressoir", philosophie d'un numérique sobre et "low tech", json et markdown, etc.)
 
 > Note : la licence MIT impose de conserver l’avis de copyright et le texte de licence dans toute copie ou portion substantielle du logiciel.
