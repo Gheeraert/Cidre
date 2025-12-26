@@ -1,0 +1,56 @@
+# --- Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# --- Environnements / venv
+.venv/
+venv/
+ENV/
+env/
+*.venv
+
+# --- IDE / éditeurs
+.vscode/
+.idea/
+*.iml
+
+# --- OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Données locales / sorties générées
+dist/
+site/
+output/
+_out/
+*.tmp
+*.bak
+*.swp
+
+# --- Exports sensibles / configs locales (si tu en crées)
+.env
+.env.*
+config.local.*
+secrets.*
+*.key
+*.pem
+
+# --- Excel temporaires
+~$*.xlsx
+~$*.xls
+*.xlsb
