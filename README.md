@@ -43,7 +43,7 @@ http://purh.ovh
 - Un environnement virtuel (venv/uv/conda) est conseillé
 - Librairie markdown (pip install markdown)
 - Librairie pandas (pip install pandas)
-- Librairie openpyxl (pip install openpyxl
+- Librairie openpyxl (pip install openpyxl)
 
 > Les dépendances exactes sont définies dans `requirements.txt`.
 
@@ -89,7 +89,7 @@ python -m http.server 8000 --directory dist
 Puis visitez : `http://localhost:8000`
 
 ## Lancement facile par interface graphique
-1. Depuis un IDE comme Pycharm, lancez l'interface graphique tkinter avec gui_tk.txt
+1. Depuis un IDE comme Pycharm, lancez l'interface graphique tkinter avec gui_tk.py
 
 2. Remplir la boîte de dialogue (chemin du fichier tableur, chemin du dossier de couvertures, cases à cocher)
 
