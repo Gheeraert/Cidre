@@ -17,6 +17,10 @@ Le principe est inspiré du Pressoir, générateur en production aux Presses de 
 Site des Presses universitaires de Rouen et du Havre
 http://purh.ovh
 
+**Exemple en production**
+Téléchargement des exécutables et utilisation
+http://purh.ovh/cidre
+
 ---
 
 ## Fonctionnalités
