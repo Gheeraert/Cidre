@@ -13,11 +13,21 @@ Un clic sur une boîte de dialogue déploie un site complet de maison d'édition
 
 Le principe est inspiré du Pressoir, générateur en production aux Presses de Montréal et aux Presses universitaires de Rouen et du Havre: https://www.arthurperret.fr/veille/2023-12-24-le-pressoir.html
 
+CIDRE est une chaîne d’éditorialisation où un tableur joue le rôle d’interface de gouvernance des métadonnées, et où le site statique est le produit. CIDRE part d’un fichier Excel unique qui joue trois rôles : Réservoir de données structurées, Interface de pilotage, contrat de structure. Quand on lance CIDRE, le script charge les onglets, nettoie et normalise, harmonise les colonnes, fabrique des champs dérivés indispensables au web statique.
+
+À partir des DataFrames, CIDRE construit une représentation JSON qui devient la source unique de vérité pour la génération. Le catalogue en json permet ensuite d’avoir une navigation, des listes, et des “index” utiles au moteur de recherche (côté client, sans serveur). Autrement dit : CIDRE fabrique un modèle de données éditorial à partir du tableur.
+
+Une fois le modèle prêt, CIDRE génère un ensemble de fichiers dans un répertoire dist/. Les contenus textuels sont généralement traités (Markdown → HTML) puis injectés dans un gabarit.
+
+CIDRE peut aussi publier le dossier dist/ par FTP (déploiement simple) et exporter des métadonnées (par ex. ONIX), selon la même logique: on repart du modèle normalisé pour produire un flux.
+
+Le dispositif reste léger, souverain, maintenable et sécurisé.
+
 **Exemple en production**
 Site des Presses universitaires de Rouen et du Havre
 http://purh.ovh
 
-**Exemple en production**
+**Site public de téléchargement**
 Téléchargement des exécutables et utilisation
 http://purh.ovh/cidre
 
