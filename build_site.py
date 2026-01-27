@@ -1055,6 +1055,7 @@ def book_retailers_block(id13: str, openedition_url: str = "") -> str:
             ("Fnac", f"https://www.fnac.com/SearchResult/ResultList.aspx?Search={id13}"),
             ("Place des Libraires", f"https://www.placedeslibraires.fr/listeliv.php?mots_recherche={id13}"),
             ("Cultura", f"https://www.cultura.com/catalogsearch/result/?q={id13}"),
+            ("LCDPU (Comptoir des PU)", f"https://www.lcdpu.fr/livre/?isbn={id13}"),
         ]
         items.extend(
             f"<li><a href='{e(url)}' target='_blank' rel='noopener'>{e(label)}</a></li>"
