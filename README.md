@@ -25,11 +25,11 @@ Le dispositif reste léger, souverain, maintenable et sécurisé.
 
 **Exemple en production**
 Site des Presses universitaires de Rouen et du Havre
-http://purh.ovh
+[https://purh.univ-rouen.fr/](https://purh.univ-rouen.fr/)
 
 **Site public de téléchargement**
 Téléchargement des exécutables et utilisation
-http://purh.ovh/cidre
+[https://purh.univ-rouen.fr/cidre](https://purh.univ-rouen.fr/cidre)
 
 ---
 
