@@ -431,6 +431,8 @@ h1, h2, h3 { margin: 0.6rem 0 0.4rem; }
 .book-meta .meta-label { font-weight: 0; }
 .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
 .card { background:#fff; border: 1px solid #e6e6e6; border-radius: 12px; padding: 12px; display:flex; gap: 12px; box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
+.collection-desc { margin: 10px 0 14px; text-align: justify; }
+.collection-desc p:first-child { margin-top: 0; }
 .cover { width: 76px; height: 110px; flex: 0 0 76px; border-radius: 8px; border: 1px solid #eee; background: #f3f3f3; object-fit: cover; }
 .meta { flex: 1; min-width: 0; }
 .card .meta a { display: block; }
@@ -1365,6 +1367,7 @@ def load_collections(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     if sheet not in wb.sheet_names:
         return pd.DataFrame()
     df = wb.parse(sheet_name=sheet)
+    df.columns = [str(c).strip() for c in df.columns]  # ✅ important
     for c in ["collection_id", "name", "slug", "description_md", "directeurs", "comite_scientifique", "is_active"]:
         if c not in df.columns:
             df[c] = None
@@ -2147,13 +2150,16 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         if comite:
             meta.append(f"<div class='kv'><div class='k'>Comité scientifique</div><div>{e(comite)}</div></div>")
 
+        desc_html = desc if desc else ""
+        desc_block = f"<div class='collection-desc'>{desc_html}</div>" if desc_html else ""
+
         body = f"""
-<h2>{e(name)}</h2>
-{''.join(meta)}
-{desc if desc else ""}
-<h3>Ouvrages rattachés</h3>
-{cards_html}
-"""
+        <h2>{e(name)}</h2>
+        {desc_block}
+        {''.join(meta)}
+        <h3>Ouvrages rattachés</h3>
+        {cards_html}
+        """
         slug = as_str(c.get("slug") or cid)
         write_file(base / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {name}", "collections", body, ".."))
 
