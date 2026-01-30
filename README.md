@@ -144,6 +144,7 @@ Les onglets “éditoriaux” pilotent la navigation et les contenus fixes ; l�
 - **CONFIG** : identité de la structure (nom, baseline, logos, liens, options, etc.)
 - **PAGES** : pages fixes (slug, titre, contenu, ordre, menu, etc.)
 - **COLLECTIONS** : métadonnées collections + texte de présentation
+- **ACTUS** : Brèves et actualités, qui peuvent alimenter un carrousel sur la page d'accueil
 - **REVUES** : métadonnées revues + texte de présentation
 - **CONTACTS** : adresses, réseaux sociaux, informations institutionnelles
 - **CATALOGUE** (nom libre) : liste des titres (une ligne = un livre)
