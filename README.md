@@ -39,7 +39,8 @@ Téléchargement des exécutables et utilisation
 - Lecture d’un classeur tableur structuré (onglets “CONFIG”, “PAGES”, “COLLECTIONS”, “REVUES”, “CONTACTS” + onglet catalogue)
 - Pages générées :  
   - `index.html` (accueil)  
-  - `catalogue.html` (recherche + filtres côté navigateur)  
+  - `catalogue.html` (recherche + filtres côté navigateur)
+  - `actualite.html` (+ carrousel sur page d'accueil) 
   - `nouveautes.html`, `a-paraitre.html`  
   - `collections/…`, `revues/…`  
   - pages fixes (politique éditoriale, mentions légales, etc.)
@@ -138,6 +139,7 @@ python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers --
 
 Le générateur s’appuie sur un classeur dont la structure est volontairement **stable**.  
 Les onglets “éditoriaux” pilotent la navigation et les contenus fixes ; l’onglet “catalogue” pilote les livres.
+Se reporter au fichier exemple
 
 ### Onglets
 
@@ -289,14 +291,6 @@ Les contributions sont bienvenues (issues, PR) :
 1. Créez une branche (`feature/…` ou `fix/…`)
 2. Ajoutez des tests si pertinent
 3. Décrivez clairement l’impact (données / thème / compatibilité tableur)
-
----
-
-## Sécurité / données
-
-- Ne commitez pas d’exports contenant des données personnelles inutiles.
-- Ne commitez jamais d’identifiants FTP / tokens / secrets.
-- Si le fichier tableur contient des contacts nominaux, privilégiez des données “institutionnelles”.
 
 ---
 
