@@ -217,6 +217,20 @@ def e(s: Any) -> str:
 
 MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
+def normalize_external_url(v: Any) -> str:
+    u = as_str(v).strip()
+    if not u:
+        return ""
+    if re.search(r"\s", u):
+        return ""  # sécurité : pas d'espaces dans une URL
+    if re.match(r"^(https?://|mailto:)", u, flags=re.I):
+        return u
+    # tolérance : "www..." ou "domaine.tld/..."
+    if u.startswith("www."):
+        return "https://" + u
+    if re.match(r"^[a-z0-9.-]+\.[a-z]{2,}(/|$)", u, flags=re.I):
+        return "https://" + u
+    return ""
 
 def _href_with_rel(href: str, rel: str) -> str:
     href = (href or "").strip()
@@ -431,7 +445,12 @@ h1, h2, h3 { margin: 0.6rem 0 0.4rem; }
 .book-meta .meta-label { font-weight: 0; }
 .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
 .card { background:#fff; border: 1px solid #e6e6e6; border-radius: 12px; padding: 12px; display:flex; gap: 12px; box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
-.collection-desc { margin: 10px 0 14px; text-align: justify; }
+.collection-desc { 
+  margin: 10px 0 10px; 
+  text-align: justify; 
+  position: relative; 
+}
+
 .collection-desc p:first-child { margin-top: 0; }
 .cover { width: 76px; height: 110px; flex: 0 0 76px; border-radius: 8px; border: 1px solid #eee; background: #f3f3f3; object-fit: cover; }
 .meta { flex: 1; min-width: 0; }
@@ -446,6 +465,34 @@ h1, h2, h3 { margin: 0.6rem 0 0.4rem; }
   font-weight: 650;
   margin-top: 4px;
 }
+/* État replié : hauteur fixe + masque dégradé */
+.collection-desc.clamped {
+  max-height: 220px; /* Hauteur de l'extrait visible (~10 lignes) */
+  overflow: hidden;
+}
+.collection-desc.clamped::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 80px;
+  background: linear-gradient(to bottom, transparent, #fafafa); /* Doit correspondre au background body */
+  pointer-events: none;
+}
+
+/* Le bouton "Lire la suite" */
+.desc-toggle {
+  display: inline-block;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 20px;
+  text-decoration: underline;
+}
+.desc-toggle:hover { text-decoration: none; }
 .badges { margin-top: 6px; display:flex; gap: 6px; flex-wrap: wrap; }
 .badge { display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #e1e1e1; font-size: 0.82rem; color:#333; background:#fcfcfc; }
 .badge-oa { border-color: var(--accent); font-weight: 650; }
@@ -600,6 +647,78 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
    Carrousel actualités
    ========================= */
 
+.newsbar{
+  background: #fff;
+  border-bottom: 1px solid #e6e6e6;
+}
+.newsbar .wrap{
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.newsbar-title{
+  display:flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.newsbar-title h2{
+  font-size: 1.05rem;
+  margin: 0;
+}
+.newsbar-title a{
+  font-size: 0.95rem;
+  color: var(--accent);
+}
+
+/* Le “viewport” du carrousel */
+.news-carousel{
+  position: relative;
+}
+
+/* La piste : on masque tout ce qui dépasse, et on ne scroll plus à la main */
+.news-track{
+  display:flex;
+  overflow: hidden;          /* ✅ une seule visible */
+  scroll-behavior: smooth;   /* ✅ animation douce sur scrollTo */
+  padding: 0;                /* ✅ pas de marge latérale qui gêne le calcul */
+}
+
+/* Une slide = 100% de la largeur */
+.news-item{
+  flex: 0 0 100%;            /* ✅ 1 item = 100% */
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+}
+
+/* Le lien couvre toute la slide */
+.news-link{
+  display:block;
+  color: inherit;
+}
+
+.news-img{
+  width: 100%;
+  height: 220px;             /* ✅ hauteur maîtrisée */
+  object-fit: cover;
+  display:block;
+  background:#f3f3f3;
+}
+
+@media (max-width: 720px){
+  .news-img{ height: 170px; }
+}
+
+.news-meta{
+  padding: 10px 12px;
+}
+.news-meta .t{
+  font-weight: 750;
+  line-height: 1.2;
+}
 .news-meta .d{
   margin-top: 4px;
   font-size: 0.92rem;
@@ -610,91 +729,10 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
   overflow: hidden;
 }
 
-.newsbar{
-  background: #fff;
-  border-bottom: 1px solid #e6e6e6;
-}
-
-.newsbar .wrap{
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-
-.newsbar-title{
-  display:flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.newsbar-title h2{
-  font-size: 1.05rem;
-  margin: 0;
-}
-
-.newsbar-title a{
-  font-size: 0.95rem;
-  color: var(--accent);
-}
-
-.news-carousel{
-  position: relative;
-}
-
-.news-track{
-  justify-content: center;
-  display:flex;
-  gap: 12px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  padding: 0 44px 6px;
-  -webkit-overflow-scrolling: touch;
-}
-
-.news-item{
-  scroll-snap-align: start;
-  flex: 0 0 min(420px, 88vw);
-  border: 1px solid #e6e6e6;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #fff;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
-}
-
-.news-link{
-  display:block;
-  color: inherit;
-}
-
-.news-img{
-  width: 100%;
-  height: 150px;          /* ✅ hauteur maîtrisée */
-  object-fit: cover;
-  display:block;
-  background:#f3f3f3;
-}
-
-.news-meta{
-  padding: 10px 12px;
-}
-
-.news-meta .t{
-  font-weight: 750;
-  line-height: 1.2;
-}
-
-.news-meta .d{
-  margin-top: 4px;
-  font-size: 0.92rem;
-  color: #555;
-}
-
-/* flèches */
+/* Flèches : toujours présentes (desktop + mobile) */
 .news-btn{
   position:absolute;
-  top: 56px;              /* aligné à la hauteur de l'image */
+  top: 75px;                 /* ~ milieu de l’image (150px/2) */
   transform: translateY(-50%);
   border: 1px solid #ddd;
   background: rgba(255,255,255,0.92);
@@ -706,15 +744,34 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
   align-items:center;
   justify-content:center;
   user-select:none;
+  z-index: 2;
 }
 .news-btn:hover{ background:#fff; }
 .news-prev{ left: 8px; }
 .news-next{ right: 8px; }
 
-/* Mobile : encore plus bas */
-@media (max-width: 720px){
-  .news-track{ padding: 0 0 6px; } /* sur mobile on swipe : pas besoin de marge */
-  .news-btn{ display:none; }       /* sur mobile, on swipe */
+/* Accessibilité : focus visible */
+.news-btn:focus{
+  outline: 2px solid rgba(0,90,156,0.35);
+  outline-offset: 2px;
+}
+
+/* Hover cartes Actualités */
+.news-card{
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+.news-card:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.08);
+  border-color: rgba(0,0,0,0.10);
+}
+.news-card:hover .news-card-title{
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce){
+  .news-card{ transition: none; }
+  .news-card:hover{ transform: none; }
 }
 """
 
@@ -863,8 +920,9 @@ NEWS_CAROUSEL_JS = r"""
 
   const items = data.map((r)=>`
   <div class="news-item">
-    <a class="news-link" href="./actualites.html">
-      ${r.image ? `<img class="news-img" src="./${esc(r.image)}" alt="" loading="lazy" decoding="async">` : `<div class="news-img"></div>`}
+    <a class="news-link" href="./actualites.html#actu-${esc(r.id || '')}">
+      ${r.image ? `<img class="news-img" src="./${esc(r.image)}" alt="" loading="lazy" decoding="async">`
+                : `<div class="news-img"></div>`}
       <div class="news-meta">
         <div class="t">${esc(r.title || "")}</div>
         ${r.date ? `<div class="d">${esc(r.date)}</div>` : ``}
@@ -873,7 +931,6 @@ NEWS_CAROUSEL_JS = r"""
     </a>
   </div>
 `).join("");
-
 
   host.innerHTML = `
     <div class="newsbar">
@@ -885,8 +942,8 @@ NEWS_CAROUSEL_JS = r"""
 
         <div class="news-carousel">
           <div class="news-track" id="newsTrack">${items}</div>
-          <div class="news-btn news-prev" id="newsPrev" title="Précédent" aria-label="Précédent">‹</div>
-          <div class="news-btn news-next" id="newsNext" title="Suivant" aria-label="Suivant">›</div>
+          <button class="news-btn news-prev" id="newsPrev" type="button" title="Précédent" aria-label="Précédent">‹</button>
+          <button class="news-btn news-next" id="newsNext" type="button" title="Suivant" aria-label="Suivant">›</button>
         </div>
       </div>
     </div>
@@ -896,19 +953,61 @@ NEWS_CAROUSEL_JS = r"""
   const prev = document.getElementById("newsPrev");
   const next = document.getElementById("newsNext");
 
-  function scrollByCard(dir){
-    const card = track.querySelector(".news-item");
-    const w = card ? (card.getBoundingClientRect().width + 12) : 420;
-    track.scrollBy({ left: dir * w, behavior: "smooth" });
-  }
-  if(prev) prev.addEventListener("click", ()=>scrollByCard(-1));
-  if(next) next.addEventListener("click", ()=>scrollByCard(1));
+  const n = track ? track.children.length : 0;
+  if(!track || n === 0) return;
 
-  let auto = setInterval(()=>scrollByCard(+1), 5500);
-  function stopAuto(){ if(auto){ clearInterval(auto); auto = null; } }
-  track.addEventListener("pointerdown", stopAuto, {passive:true});
-  track.addEventListener("wheel", stopAuto, {passive:true});
-  track.addEventListener("touchstart", stopAuto, {passive:true});
+  let idx = 0;
+  let auto = null;
+  let resumeTimer = null;
+
+  function slideWidth(){
+    // largeur visible du “viewport” (une slide = 100% de ça)
+    return track.getBoundingClientRect().width || 1;
+  }
+
+  function go(i, smooth=true){
+    idx = (i % n + n) % n;
+    track.scrollTo({ left: idx * slideWidth(), behavior: smooth ? "smooth" : "auto" });
+  }
+
+  function currentIndex(){
+    const w = slideWidth();
+    return Math.round(track.scrollLeft / w);
+  }
+
+  function stopAuto(){
+    if(auto){ clearInterval(auto); auto = null; }
+    if(resumeTimer){ clearTimeout(resumeTimer); resumeTimer = null; }
+  }
+
+  function startAuto(){
+    stopAuto();
+    auto = setInterval(()=>{ go(currentIndex() + 1, true); }, 5500);
+  }
+
+  function pauseThenResume(){
+    stopAuto();
+    // reprise douce après interaction
+    resumeTimer = setTimeout(()=>{ startAuto(); }, 5000);
+  }
+
+  prev.addEventListener("click", ()=>{ pauseThenResume(); go(currentIndex() - 1, true); });
+  next.addEventListener("click", ()=>{ pauseThenResume(); go(currentIndex() + 1, true); });
+
+  // Interaction utilisateur : pause temporaire
+  track.addEventListener("pointerdown", pauseThenResume, {passive:true});
+  track.addEventListener("wheel",      pauseThenResume, {passive:true});
+  track.addEventListener("touchstart", pauseThenResume, {passive:true});
+
+  // Recalage au resize (sinon on “tombe entre deux”)
+  window.addEventListener("resize", ()=>{
+    // recale sans animation
+    go(currentIndex(), false);
+  });
+
+  // Init : on se place sur la première et on lance l’auto
+  go(0, false);
+  startAuto();
 })();
 """
 
@@ -1423,10 +1522,14 @@ def load_actualites(wb: pd.ExcelFile) -> pd.DataFrame:
             colmap[c] = "is_active"
         elif lc in {"texte", "text", "contenu", "content", "resume", "résumé", "description"}:
             colmap[c] = "text"
+        elif lc in {"id13", "isbn", "isbn13", "book_id13", "gtin", "ean13", "ean-13", "isbn-13"}:
+            colmap[c] = "id13"
+        elif lc in {"lien", "link", "url", "lien_externe", "lien-externe"}:
+            colmap[c] = "link"
 
     df = df.rename(columns=colmap)
 
-    for c in ["title", "image", "date", "text", "is_active"]:
+    for c in ["title", "image", "date", "text", "is_active", "id13", "link"]:
         if c not in df.columns:
             df[c] = None
 
@@ -1435,6 +1538,8 @@ def load_actualites(wb: pd.ExcelFile) -> pd.DataFrame:
     df["date"] = df["date"].apply(as_str)
     df["text"] = df["text"].apply(as_str)
     df["is_active"] = df["is_active"].apply(lambda x: True if is_na(x) else norm_bool(x))
+    df["id13"] = df["id13"].apply(normalize_id13)
+    df["link"] = df["link"].apply(as_str)
 
     df = df[df["is_active"]].copy()
 
@@ -1494,8 +1599,17 @@ def copy_actualites_images(excel_path: Path, out_dir: Path, actualites: pd.DataF
             continue
         shutil.copy2(src, dst)
 
-def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, max_items: int = 10) -> None:
+def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Optional[pd.DataFrame] = None, max_items: int = 10) -> None:
     recs = []
+
+    id13_to_slug = {}
+    if books is not None and not books.empty and "id13" in books.columns and "slug" in books.columns:
+        for _, b in books.iterrows():
+            i = as_str(b.get("id13"))
+            s = as_str(b.get("slug"))
+            if i and s:
+                id13_to_slug[i] = s
+
     if actualites is None or actualites.empty:
         (out_dir / "assets" / "actualites.json").write_text("[]", encoding="utf-8")
         return
@@ -1506,6 +1620,8 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, max_items: in
             return s
         return s[: n - 1].rstrip() + "…"
 
+    used_ids: set[str] = set()
+
     for _, r in actualites.head(int(max_items)).iterrows():
         img = as_str(r.get("image"))
         img_url = f"assets/actu/{Path(img).name}" if img else ""
@@ -1513,6 +1629,16 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, max_items: in
         text_md = as_str(r.get("text"))
         text_html = ""
         excerpt = ""
+
+        base_id = slugify(as_str(r.get("title"))) or "actu"
+        actu_id = ensure_unique_slug(base_id, used_ids)
+
+        book_id13 = as_str(r.get("id13"))
+        href = "./actualites.html"
+        if book_id13 and book_id13 in id13_to_slug:
+            href = f"./livres/{id13_to_slug[book_id13]}.html"
+
+        ext_link = normalize_external_url(r.get("link"))
 
         if text_md:
             # Markdown -> HTML (comme le reste du site)
@@ -1528,6 +1654,9 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, max_items: in
             "image": img_url,
             "html": text_html,      # pour la page actualites.html
             "excerpt": excerpt,     # pour le carrousel
+            "href": href,
+            "id": actu_id,
+            "link": ext_link,
         })
 
     (out_dir / "assets").mkdir(parents=True, exist_ok=True)
@@ -1555,20 +1684,38 @@ def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
         date_ = e(r.get("date", ""))
         img = as_str(r.get("image"))
         html_frag = r.get("html", "") or ""
+        href = as_str(r.get("href")) or "./actualites.html"
+        actu_id = as_str(r.get("id"))
+        ext_link = as_str(r.get("link"))
+        link_block = ""
+        if ext_link:
+            link_block = (
+                "<div class='small' style='margin-top:12px'>"
+                "<strong>Lien :</strong> "
+                f"<a href='{e(ext_link)}' target='_blank' rel='noopener'>{e(ext_link)}</a>"
+                "</div>"
+            )
+        title_html = f"<a href='{e(href)}' style='color:inherit;text-decoration:none'>" \
+                     f"<div style='font-weight:750;font-size:1.15rem;line-height:1.2'>{title}</div></a>"
         # html_frag est déjà “sanitized” au build_json (mais on peut re-sécuriser)
         html_frag = sanitize_html_fragment(as_str(html_frag))
 
-        img_html = f"<img class='news-img' src='./{e(img)}' alt='' loading='lazy' decoding='async'>" if img else ""
+        img_html = (
+            f"<a href='{e(href)}' style='display:block'>"
+            f"<img class='news-img' src='./{e(img)}' alt='' loading='lazy' decoding='async'>"
+            f"</a>"
+        ) if img else ""
         items.append(f"""
-<article class="card" style="flex-direction:column">
-  {img_html}
-  <div class="meta">
-    <div style="font-weight:750;font-size:1.15rem;line-height:1.2">{title}</div>
-    {f"<div class='small' style='margin-top:6px'>{date_}</div>" if date_ else ""}
-    {f"<div style='margin-top:10px'>{html_frag}</div>" if html_frag else ""}
-  </div>
-</article>
-""".strip())
+        <article id="actu-{e(actu_id)}" class="card news-card" style="flex-direction:column">
+          {img_html}
+          <div class="meta">
+            {title_html}
+            {f"<div class='small' style='margin-top:6px'>{date_}</div>" if date_ else ""}
+            {f"<div style='margin-top:10px'>{html_frag}</div>" if html_frag else ""}
+            {link_block}
+          </div>
+        </article>
+        """.strip())
 
     body = f"""
 <h2>{e(cfg.menu_label_actualites)}</h2>
@@ -2150,8 +2297,28 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         if comite:
             meta.append(f"<div class='kv'><div class='k'>Comité scientifique</div><div>{e(comite)}</div></div>")
 
-        desc_html = desc if desc else ""
-        desc_block = f"<div class='collection-desc'>{desc_html}</div>" if desc_html else ""
+        # --- LOGIQUE DEPLIER / REPLIER ---
+        desc_block = ""
+        if desc:
+            # On compte la longueur brute du HTML pour décider si on coupe
+            # Seuil à 600 caractères (ajustable selon tes préférences)
+            is_long = len(desc) > 600
+
+            css_cls = "collection-desc clamped" if is_long else "collection-desc"
+            btn_html = ""
+
+            if is_long:
+                # Le script JS est directement dans l'attribut onclick pour éviter de charger du JS externe
+                btn_html = """
+                <button class="desc-toggle" onclick="
+                  var d = this.previousElementSibling;
+                  d.classList.toggle('clamped');
+                  this.textContent = d.classList.contains('clamped') ? 'Lire la suite' : 'Replier';
+                ">Lire la suite</button>
+                """
+
+            desc_block = f"<div class='{css_cls}'>{desc}</div>{btn_html}"
+        # ---------------------------------
 
         body = f"""
         <h2>{e(name)}</h2>
@@ -2162,7 +2329,6 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         """
         slug = as_str(c.get("slug") or cid)
         write_file(base / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {name}", "collections", body, ".."))
-
 
 def build_revues(cfg: SiteConfig, revues: pd.DataFrame, out_dir: Path) -> None:
     base = out_dir / "revues"
@@ -2572,7 +2738,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     # Actualités (carrousel)
     if actualites is not None and not actualites.empty:
         copy_actualites_images(excel_path, out_dir, actualites)
-    build_actualites_json(actualites, out_dir, max_items=10)
+    build_actualites_json(actualites, out_dir, books=books, max_items=10)
     build_actualites_page(cfg, out_dir)
 
     # validation report always produced
