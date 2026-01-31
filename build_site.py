@@ -1593,11 +1593,20 @@ def copy_actualites_images(excel_path: Path, out_dir: Path, actualites: pd.DataF
         src = resolve_actu_image_source(excel_dir, img)
         if not src:
             continue
-        # garder basename pour URL propre
+
         dst = dest / src.name
+
         if dst.exists():
-            continue
+            try:
+                same_size = dst.stat().st_size == src.stat().st_size
+                dst_newer_or_equal = dst.stat().st_mtime >= src.stat().st_mtime
+                if same_size and dst_newer_or_equal:
+                    continue
+            except Exception:
+                pass
+
         shutil.copy2(src, dst)
+
 
 def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Optional[pd.DataFrame] = None, max_items: int = 10) -> None:
     recs = []
@@ -1748,7 +1757,10 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["credit_ligne"] = df["credit_ligne"].fillna("").apply(format_credit_line)
     df["id13"] = df["id13"].apply(normalize_id13)
     df["openedition_url"] = df["openedition_url"].fillna("").apply(as_str)
-
+    # Normaliser cover_file : on garde juste le basename (évite "covers/xxx.jpg" vs "xxx.jpg")
+    df["cover_file"] = df["cover_file"].apply(
+        lambda v: Path(as_str(v).replace("\\", "/")).name if as_str(v) else ""
+    )
     # --- COLLECTION_ID : garantir un identifiant exploitable
     df["collection_id"] = df["collection_id"].apply(lambda x: slugify(as_str(x)) if as_str(x) else None)
     missing_cid = df["collection_id"].isna() | (df["collection_id"].astype(str).str.strip() == "")
@@ -1892,28 +1904,45 @@ def resolve_asset_source(excel_dir: Path, asset_rel: str) -> Optional[Path]:
 
 
 def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> None:
+    """
+    Copie les assets déclarés dans CONFIG vers dist/assets.
+    Règle :
+      - on ne supprime jamais dist/assets/*
+      - on ne remplace un fichier existant que si la source semble "plus récente" ou différente
+        (même logique que copy_covers).
+    """
     excel_dir = excel_path.parent
     (out_dir / "assets").mkdir(parents=True, exist_ok=True)
 
     declared = [cfg.logo_left, cfg.logo_right, cfg.favicon, cfg.footer_logo]
     if cfg.order_mode == "pdf" and cfg.order_pdf_filename:
         declared.append(
-            f"assets/{cfg.order_pdf_filename}" if "/" not in cfg.order_pdf_filename else cfg.order_pdf_filename)
+            f"assets/{cfg.order_pdf_filename}"
+            if "/" not in cfg.order_pdf_filename and "\\" not in cfg.order_pdf_filename
+            else cfg.order_pdf_filename
+        )
 
     for rel in declared:
         rel = as_str(rel)
         if not rel:
             continue
+
         src = resolve_asset_source(excel_dir, rel)
         if not src:
             continue
+
         dest = out_dir / rel.replace("\\", "/")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
 
-        # ✅ Ne pas toucher aux assets existants
         if dest.exists():
-            continue
+            try:
+                same_size = dest.stat().st_size == src.stat().st_size
+                dest_newer_or_equal = dest.stat().st_mtime >= src.stat().st_mtime
+                if same_size and dest_newer_or_equal:
+                    continue
+            except Exception:
+                pass
+
         shutil.copy2(src, dest)
 
 
@@ -1921,13 +1950,20 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
     recs = []
     for _, r in books.iterrows():
         # Année: garantir une valeur lisible (éviter '2025.0')
-        y = r.get('year')
+        y = r.get("year")
         year_str = ""
         if y is not None and not pd.isna(y):
             try:
                 year_str = str(int(float(y)))
             except Exception:
                 year_str = str(y).strip()
+
+        # ✅ COVER: ne publier que si le fichier existe vraiment dans dist/covers
+        cover = as_str(r.get("cover_file"))
+        cover = Path(cover.replace("\\", "/")).name if cover else ""
+        if cover and cover not in AVAILABLE_COVERS:
+            cover = ""
+
         recs.append({
             "id13": clean_json_value(r.get("id13")) or "",
             "slug": clean_json_value(r.get("slug")) or "",
@@ -1942,7 +1978,7 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
             "currency": clean_json_value(r.get("currency_str")) or "",
             "availability": clean_json_value(r.get("availability_label")) or "",
             "physical": clean_json_value(r.get("physical_str")) or "",
-            "cover": clean_json_value(r.get("cover_file")) or "",
+            "cover": cover,  # ✅ ici
             "excerpt": clean_json_value(r.get("excerpt")) or "",
             "order_url": clean_json_value(r.get("order_url")) or "",
             "openedition_url": clean_json_value(r.get("openedition_url")) or "",
@@ -1953,6 +1989,7 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
         json.dumps(recs, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8"
     )
+
 
 
 def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
@@ -2474,7 +2511,6 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, ou
             body = f"<h2>{e(title)}</h2><p class='small'>Page non renseignée dans l’onglet PAGES.</p>"
             write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
 
-
 def build_validation_report(books: pd.DataFrame, out_dir: Path) -> None:
     problems = []
     for _, r in books.iterrows():
@@ -2483,8 +2519,13 @@ def build_validation_report(books: pd.DataFrame, out_dir: Path) -> None:
             issues.append("ISBN/GTIN manquant")
         if not as_str(r.get("titre_norm")):
             issues.append("Titre manquant")
-        if not as_str(r.get("cover_file")):
+        cover = as_str(r.get("cover_file"))
+        if not cover:
             issues.append("Couverture manquante (cover_file)")
+        else:
+            cov = Path(cover.replace("\\", "/")).name
+            if AVAILABLE_COVERS and cov not in AVAILABLE_COVERS:
+                issues.append("Couverture introuvable dans dist/covers (nom incohérent ?)")
         if not as_str(r.get("Description courte")) and not as_str(r.get("Description longue")):
             issues.append("Résumé manquant")
         if issues:
@@ -2766,7 +2807,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     build_catalogue_page(cfg, out_dir)
     build_new_titles(cfg, recent, out_dir, new_months)
     build_upcoming_page(cfg, upcoming, out_dir)
-    build_actualites_page(cfg, out_dir)
+    # build_actualites_page(cfg, out_dir)
     # build_contacts(cfg, contacts, out_dir)
 
     build_book_pages(cfg, books, out_dir)
