@@ -1,5 +1,5 @@
 # Générateur de site statique de maison d'édition scientifique et / ou indépendante
-# © 2025 Tony Gheeraert - Licence MIT (voir LICENSE)
+# © 2025-2026 Tony Gheeraert - Licence MIT (voir LICENSE)
 # Crédits : PURH + Chaire d'excellence édition numérique de l'université de Rouen
 # build_site = fichier principal du projet
 #
