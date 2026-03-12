@@ -424,7 +424,7 @@ class App(tk.Tk):
             self._preview_server = None
 
         try:
-            srv = PreviewServer(directory=str(out_dir), host="127.0.0.1", port=int(port))
+            srv = PreviewServer(directory=str(out_dir), host="localhost", port=int(port))
             url = srv.start()  # peut changer de port si déjà pris
             self._preview_server = srv
 
@@ -466,7 +466,7 @@ class App(tk.Tk):
 
         # Si déjà lancé, on ouvre l’URL réelle
         if self._preview_server:
-            webbrowser.open(f"http://127.0.0.1:{int(self._preview_server.port)}/")
+            webbrowser.open(f"http://localhost:{int(self._preview_server.port)}/")
             return
 
         # Sinon, on démarre puis on ouvre (comportement pratique)
@@ -583,7 +583,7 @@ class App(tk.Tk):
                         if url:
                             webbrowser.open(url)
 
-                    self.after(0, _start_and_open)
+                    self.after(250, _start_and_open)
 
             except Exception:
                 err = traceback.format_exc()
