@@ -117,6 +117,28 @@ def as_str(v: Any) -> str:
         return ""
     return str(v).strip()
 
+def fmt_display_date(v: Any) -> str:
+    """Affiche proprement une date Excel/pandas sans l'heure parasite."""
+    if is_na(v):
+        return ""
+
+    if isinstance(v, pd.Timestamp):
+        return v.strftime("%Y-%m-%d")
+
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+
+    if isinstance(v, date):
+        return v.strftime("%Y-%m-%d")
+
+    s = as_str(v)
+
+    # Cas fréquent : "2026-04-10 00:00:00"
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})\s+00:00:00$", s)
+    if m:
+        return m.group(1)
+
+    return s
 
 def parse_pub_date(v: Any) -> Optional[date]:
     """Parse date_parution_norm en date() si possible (YYYY, YYYY-MM, YYYY-MM-DD)."""
@@ -502,6 +524,26 @@ h1, h2, h3 { margin: 0.6rem 0 0.4rem; }
 .badge { display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #e1e1e1; font-size: 0.82rem; color:#333; background:#fcfcfc; }
 .badge-oa { border-color: var(--accent); font-weight: 650; }
 .badges a.badge:hover { text-decoration: none; background:#f3f3f3; }
+.social-strip { margin: 10px 0 16px; }
+.social-strip-title { margin: 0 0 8px; font-weight: 650; }
+.social-links { display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
+.social-badge { display:inline-flex; align-items:center; gap: 8px; padding: 7px 10px; border-radius: 999px; border: 1px solid #e1e1e1; font-size: 0.92rem; color:#333; background:#fcfcfc; }
+.social-badge:hover { text-decoration:none; background:#f3f3f3; }
+.social-badge img { width: 18px; height: 18px; object-fit: contain; display:block; }
+.social-strip{
+  margin: 10px 0 18px;
+  padding: 12px;
+  background:#fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
+}
+.social-strip-title{
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.social-strip .badges{
+  margin-top: 0;
+}
 .toolbar { display:flex; gap: 10px; flex-wrap: wrap; align-items:center; margin: 12px 0; }
 input[type="search"], select { padding: 10px 12px; border: 1px solid #cfcfcf; border-radius: 10px; font-size: 1rem; background: #fff; }
 input[type="search"] { flex: 1; min-width: 240px; }
@@ -1127,6 +1169,27 @@ class SiteConfig:
     menu_label_commandes: str = "Commandes/contacts"
     menu_label_actualites: str = "Actualités"
 
+    # Réseaux / liens institutionnels (page Actualités)
+    social_intro: str = "Suivez les PURH"
+    social_1_name: str = ""
+    social_1_url: str = ""
+    social_1_icon: str = ""
+    social_2_name: str = ""
+    social_2_url: str = ""
+    social_2_icon: str = ""
+    social_3_name: str = ""
+    social_3_url: str = ""
+    social_3_icon: str = ""
+    social_4_name: str = ""
+    social_4_url: str = ""
+    social_4_icon: str = ""
+    social_5_name: str = ""
+    social_5_url: str = ""
+    social_5_icon: str = ""
+    social_6_name: str = ""
+    social_6_url: str = ""
+    social_6_icon: str = ""
+
     # FTP publish (optionnel)
     ftp_host: str = ""
     ftp_user: str = ""
@@ -1483,14 +1546,93 @@ def load_collections(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     return df
 
 
+def detect_revues_sheet(wb: pd.ExcelFile, preferred: str = "") -> str:
+    """Retourne l'onglet des revues, avec tolérance REVUE/REVUES et variantes proches."""
+    preferred = as_str(preferred)
+    if preferred and preferred in wb.sheet_names:
+        return preferred
+
+    wanted = {"revue", "revues", "journal", "journals"}
+    for sh in wb.sheet_names:
+        if slugify(sh) in wanted:
+            return sh
+
+    # Dernière chance : on repère un onglet contenant au moins quelques colonnes typiques
+    typical = {"revue_id", "journal_id", "name", "title", "website_url", "url", "issn_print", "issn_online"}
+    for sh in wb.sheet_names:
+        try:
+            probe = wb.parse(sheet_name=sh, nrows=3)
+            cols = {slugify(str(c)) for c in probe.columns}
+            if len(cols & typical) >= 3:
+                return sh
+        except Exception:
+            pass
+    return ""
+
+
 def load_revues(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
-    if sheet not in wb.sheet_names:
+    sh = detect_revues_sheet(wb, sheet)
+    if not sh:
         return pd.DataFrame()
-    df = wb.parse(sheet_name=sheet)
+
+    df = wb.parse(sheet_name=sh)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    colmap = {}
+    for c in df.columns:
+        lc = slugify(str(c))
+        if lc in {"journal-id", "journal_id", "revue-id", "revue_id", "id", "review_id"}:
+            colmap[c] = "journal_id"
+        elif lc in {"title", "titre", "name", "nom"}:
+            colmap[c] = "title"
+        elif lc in {"slug", "handle"}:
+            colmap[c] = "slug"
+        elif lc in {"url", "website", "website-url", "website_url", "site", "site-web", "site_web", "link", "lien"}:
+            colmap[c] = "url"
+        elif lc in {"issn-print", "issn_print", "issn papier", "issn-papier"}:
+            colmap[c] = "issn_print"
+        elif lc in {"issn-online", "issn_online", "eissn", "e-issn", "issn-en-ligne", "issn_en_ligne"}:
+            colmap[c] = "issn_online"
+        elif lc in {"description", "description-md", "description_md", "content", "contenu", "texte"}:
+            colmap[c] = "description_md"
+        elif lc in {"direction", "directeur", "directeurs", "editor", "editors"}:
+            colmap[c] = "direction"
+        elif lc in {"comite-scientifique", "comite_scientifique", "scientific-board", "scientific_board"}:
+            colmap[c] = "comite_scientifique"
+        elif lc in {"contact", "contact-email", "contact_email", "email", "mail"}:
+            colmap[c] = "contact_email"
+        elif lc in {"is-active", "is_active", "active", "actif", "published"}:
+            colmap[c] = "is_active"
+        elif lc in {"order", "ordre", "position", "sort-order", "sort_order"}:
+            colmap[c] = "order"
+
+    df = df.rename(columns=colmap)
+
     for c in ["journal_id", "title", "slug", "url", "issn_print", "issn_online", "description_md", "direction",
-              "contact_email", "is_active"]:
+              "comite_scientifique", "contact_email", "is_active", "order"]:
         if c not in df.columns:
             df[c] = None
+
+    df["journal_id"] = df["journal_id"].apply(as_str)
+    df["title"] = df["title"].apply(as_str)
+    df["slug"] = df["slug"].apply(as_str)
+    df["url"] = df["url"].apply(as_str)
+    df["issn_print"] = df["issn_print"].apply(as_str)
+    df["issn_online"] = df["issn_online"].apply(as_str)
+    df["description_md"] = df["description_md"].apply(lambda x: "" if is_na(x) else str(x))
+    df["direction"] = df["direction"].apply(as_str)
+    df["comite_scientifique"] = df["comite_scientifique"].apply(as_str)
+    df["contact_email"] = df["contact_email"].apply(as_str)
+    df["is_active"] = df["is_active"].apply(lambda x: True if is_na(x) else norm_bool(x))
+    df["order"] = pd.to_numeric(df["order"], errors="coerce")
+
+    # Fallbacks utiles
+    df["title"] = df.apply(lambda r: as_str(r.get("title")) or as_str(r.get("journal_id")), axis=1)
+    df["slug"] = df.apply(
+        lambda r: slugify(as_str(r.get("slug")) or as_str(r.get("title")) or as_str(r.get("journal_id")) or "revue"),
+        axis=1
+    )
+
     return df
 
 
@@ -1669,7 +1811,7 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Option
 
         recs.append({
             "title": as_str(r.get("title")),
-            "date": as_str(r.get("date")),
+            "date": fmt_display_date(r.get("date")),
             "image": img_url,
             "html": text_html,      # pour la page actualites.html
             "excerpt": excerpt,     # pour le carrousel
@@ -1684,16 +1826,106 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Option
         encoding="utf-8"
     )
 
+def get_social_links(cfg: SiteConfig) -> List[Dict[str, str]]:
+    links: List[Dict[str, str]] = []
+    for i in range(1, 7):
+        name = as_str(getattr(cfg, f"social_{i}_name", ""))
+        url = normalize_external_url(getattr(cfg, f"social_{i}_url", ""))
+        icon = as_str(getattr(cfg, f"social_{i}_icon", ""))
+        if name and url:
+            links.append({"name": name, "url": url, "icon": icon})
+    return links
+
+
+def resolve_social_icon_source(excel_dir: Path, icon_spec: str) -> Optional[Path]:
+    """Résout une icône sociale depuis un identifiant logique (instagram) ou un chemin/fichier explicite."""
+    icon_spec = as_str(icon_spec).replace("\\", "/")
+    if not icon_spec:
+        return None
+
+    explicit_exts = (".svg", ".png", ".webp", ".jpg", ".jpeg")
+    lowered = icon_spec.lower()
+    if "/" in icon_spec or lowered.endswith(explicit_exts):
+        rel = f"assets/social/{icon_spec}" if "/" not in icon_spec else icon_spec
+        return resolve_asset_source(excel_dir, rel)
+
+    key = slugify(icon_spec)
+    if not key:
+        return None
+
+    for ext in explicit_exts:
+        for cand in (
+            excel_dir / "assets" / "social" / f"{key}{ext}",
+            excel_dir / "social" / f"{key}{ext}",
+            excel_dir / f"{key}{ext}",
+        ):
+            if cand.exists() and cand.is_file():
+                return cand
+    return None
+
+
+def find_social_icon_public_path(out_dir: Path, icon_spec: str) -> str:
+    icon_spec = as_str(icon_spec).replace("\\", "/")
+    if not icon_spec:
+        return ""
+
+    explicit_exts = (".svg", ".png", ".webp", ".jpg", ".jpeg")
+    lowered = icon_spec.lower()
+    if "/" in icon_spec or lowered.endswith(explicit_exts):
+        basename = Path(icon_spec).name
+        rel = f"assets/social/{basename}"
+        if (out_dir / rel).exists():
+            return rel
+        if "/" in icon_spec and (out_dir / icon_spec).exists():
+            return icon_spec
+        return ""
+
+    key = slugify(icon_spec)
+    if not key:
+        return ""
+
+    for ext in explicit_exts:
+        rel = f"assets/social/{key}{ext}"
+        if (out_dir / rel).exists():
+            return rel
+    return ""
+
+
+def render_social_strip(cfg: SiteConfig, out_dir: Path) -> str:
+    links = get_social_links(cfg)
+    if not links:
+        return ""
+
+    intro = e(as_str(cfg.social_intro) or "Suivez les PURH")
+    badges = []
+    for item in links:
+        name = item["name"]
+        url = item["url"]
+        icon_rel = find_social_icon_public_path(out_dir, item.get("icon", ""))
+        icon_html = f"<img src='./{e(icon_rel)}' alt='' loading='lazy' decoding='async'>" if icon_rel else ""
+        badges.append(
+            f"<a class='social-badge' href='{e(url)}' target='_blank' rel='noopener'>{icon_html}<span>{e(name)}</span></a>"
+        )
+
+    return (
+        "<div class='social-strip'>"
+        f"<div class='social-strip-title'>{intro}</div>"
+        f"<div class='social-links'>{''.join(badges)}</div>"
+        "</div>"
+    )
+
+
 def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
+    social_html = render_social_strip(cfg, out_dir)
     p = out_dir / "assets" / "actualites.json"
     if not p.exists():
-        body = "<h2>Actualités</h2><p class='small'>Aucune actualité.</p>"
+        body = f"<h2>{e(cfg.menu_label_actualites)}</h2>{social_html}<p class='small'>Aucune actualité.</p>"
         write_file(out_dir / "actualites.html", page_shell(cfg, f"{cfg.site_title} — Actualités", "actualites", body, "."))
         return
 
     data = json.loads(p.read_text(encoding="utf-8"))
     if not data:
-        body = "<h2>Actualités</h2><p class='small'>Aucune actualité.</p>"
+        body = f"<h2>{e(cfg.menu_label_actualites)}</h2>{social_html}<p class='small'>Aucune actualité.</p>"
         write_file(out_dir / "actualites.html", page_shell(cfg, f"{cfg.site_title} — Actualités", "actualites", body, "."))
         return
 
@@ -1738,6 +1970,7 @@ def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
 
     body = f"""
 <h2>{e(cfg.menu_label_actualites)}</h2>
+{social_html}
 <div class="grid">
 {chr(10).join(items)}
 </div>
@@ -1955,6 +2188,29 @@ def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> No
 
         shutil.copy2(src, dest)
 
+    # Icônes des réseaux / liens institutionnels (assets/social/*.svg, etc.)
+    for i in range(1, 7):
+        icon_spec = as_str(getattr(cfg, f"social_{i}_icon", ""))
+        if not icon_spec:
+            continue
+
+        src = resolve_social_icon_source(excel_dir, icon_spec)
+        if not src:
+            continue
+
+        dest = out_dir / "assets" / "social" / src.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        if dest.exists():
+            try:
+                same_size = dest.stat().st_size == src.stat().st_size
+                dest_newer_or_equal = dest.stat().st_mtime >= src.stat().st_mtime
+                if same_size and dest_newer_or_equal:
+                    continue
+            except Exception:
+                pass
+
+        shutil.copy2(src, dest)
 
 def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
     recs = []
@@ -2027,7 +2283,7 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
     price = as_str(r.get("price_str"))
     avail = as_str(r.get("availability_label"))
     physical = as_str(r.get("physical_str"))
-    datep = as_str(r.get("date_parution_norm"))
+    datep = fmt_display_date(r.get("date_parution_norm"))
     oe_url = as_str(r.get("openedition_url"))
     subtitle_html = f"<div class='book-subtitle'>{e(subtitle)}</div>" if subtitle else ""
     credit_html = f'<div class="book-credit">{e(credit)}</div>' if credit else ""
@@ -2065,9 +2321,9 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
 </div>
 """.strip()
 
-
 def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
     df = books.copy()
+    social_html = render_social_strip(cfg, out_dir)
 
     def date_sort_key(x: Any) -> datetime:
         s = as_str(x)
@@ -2090,6 +2346,7 @@ def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
 
     cards = [_book_card_html(r, ".", cfg) for _, r in df.iterrows()]
     body = f"""
+{social_html}
 <h2>Nouveautés</h2>
 <p class="small">Nos parutions récentes</p>
 <div class="grid">
@@ -2101,7 +2358,6 @@ def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
 </p>
 """
     write_file(out_dir / "index.html", page_shell(cfg, f"{cfg.site_title} — Accueil", "home", body, "."))
-
 
 def build_catalogue_page(cfg: SiteConfig, out_dir: Path) -> None:
     body = f"""
@@ -2199,7 +2455,7 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> Non
         credit = as_str(r.get("credit_ligne"))
         collection = as_str(r.get("collection"))
         fmt = as_str(r.get("format_site"))
-        datep = as_str(r.get("date_parution_norm"))
+        datep = fmt_display_date(r.get("date_parution_norm"))
         id13 = as_str(r.get("id13"))
         oe_url = as_str(r.get("openedition_url"))
         cover = as_str(r.get("cover_file"))
@@ -2396,13 +2652,20 @@ def build_revues(cfg: SiteConfig, revues: pd.DataFrame, out_dir: Path) -> None:
     df = revues.copy()
     df["is_active"] = df.get("is_active", 1).apply(norm_bool)
     df = df[df["is_active"]].copy()
-    df["slug"] = df["slug"].apply(lambda x: slugify(as_str(x)) if as_str(x) else slugify(as_str(x or "revue")))
-    df["title"] = df["title"].apply(as_str)
-    df = df.sort_values("title")
+    df["title"] = df.get("title", "").apply(as_str)
+    df["journal_id"] = df.get("journal_id", "").apply(as_str)
+    df["slug"] = df.apply(
+        lambda r: slugify(as_str(r.get("slug")) or as_str(r.get("title")) or as_str(r.get("journal_id")) or "revue"),
+        axis=1
+    )
+    df["order"] = pd.to_numeric(df.get("order"), errors="coerce")
+    df["_sort_title"] = df["title"].str.lower()
+    df = df.sort_values(by=["order", "_sort_title"], na_position="last")
 
     lis = []
     for _, r in df.iterrows():
-        lis.append(f'<li><a href="./{e(r.get("slug"))}.html">{e(r.get("title"))}</a></li>')
+        title = as_str(r.get("title")) or as_str(r.get("journal_id")) or "Revue"
+        lis.append(f'<li><a href="./{e(r.get("slug"))}.html">{e(title)}</a></li>')
     body = f"""
 <h2>{e(cfg.menu_label_revues)}</h2>
 <ul>
@@ -2412,11 +2675,12 @@ def build_revues(cfg: SiteConfig, revues: pd.DataFrame, out_dir: Path) -> None:
     write_file(base / "index.html", page_shell(cfg, f"{cfg.site_title} — Revues", "revues", body, ".."))
 
     for _, r in df.iterrows():
-        title = as_str(r.get("title"))
+        title = as_str(r.get("title")) or as_str(r.get("journal_id")) or "Revue"
         url = as_str(r.get("url"))
         issnp = as_str(r.get("issn_print"))
         issno = as_str(r.get("issn_online"))
         direction = as_str(r.get("direction"))
+        comite = as_str(r.get("comite_scientifique"))
         mail = as_str(r.get("contact_email"))
         desc = md_to_html(r.get("description_md") or "")
 
@@ -2430,6 +2694,8 @@ def build_revues(cfg: SiteConfig, revues: pd.DataFrame, out_dir: Path) -> None:
             meta.append(f"<div class='kv'><div class='k'>ISSN (en ligne)</div><div>{e(issno)}</div></div>")
         if direction:
             meta.append(f"<div class='kv'><div class='k'>Direction</div><div>{e(direction)}</div></div>")
+        if comite:
+            meta.append(f"<div class='kv'><div class='k'>Comité scientifique</div><div>{e(comite)}</div></div>")
         if mail:
             meta.append(
                 f"<div class='kv'><div class='k'>Contact</div><div><a href='mailto:{e(mail)}'>{e(mail)}</a></div></div>")
@@ -2803,7 +3069,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
         return
 
     today = date.today()
-    cutoff = months_ago(today, new_months)
+    cutoff = months_ago(today, cfg.new_months)
 
     upcoming = books[books["pub_date"].isna() | (books["pub_date"] > today)].copy()
     recent = books[
@@ -2820,7 +3086,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     build_pages(cfg, pages, contacts, out_dir)
     build_home(cfg, home_books, out_dir)
     build_catalogue_page(cfg, out_dir)
-    build_new_titles(cfg, recent, out_dir, new_months)
+    build_new_titles(cfg, recent, out_dir, cfg.new_months)
     build_upcoming_page(cfg, upcoming, out_dir)
     # build_actualites_page(cfg, out_dir)
     # build_contacts(cfg, contacts, out_dir)
