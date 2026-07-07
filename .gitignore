@@ -54,3 +54,6 @@ secrets.*
 ~$*.xlsx
 ~$*.xls
 *.xlsb
+
+# --- Compilation Nuitka (build_exe.bat) — on ne versionne pas les binaires
+build_exe/
