@@ -117,6 +117,53 @@ def as_str(v: Any) -> str:
         return ""
     return str(v).strip()
 
+
+# Excel enregistre les retours chariot (\r) sous forme d'échappement OOXML "_x000D_" ;
+# openpyxl ne décode pas cet échappement à la lecture, la séquence arrive donc
+# littéralement dans les cellules. Le lookbehind préserve "_x005F_x000D_"
+# (échappement d'un "_x000D_" voulu comme texte littéral).
+OOXML_CR_RE = re.compile(r"(?<!_x005F)_x000[dD]_[ \t]*\n?")
+# Transition entre une fermeture de balise de bloc et la balise suivante :
+# inutile d'y conserver plusieurs lignes vides.
+BLOCK_TAG_TRANSITION_RE = re.compile(
+    r"(</(?:p|div|ul|ol|li|h[1-6]|table|thead|tbody|tr|td|blockquote)>)\n{2,}(?=<)",
+    re.I,
+)
+
+
+def normalize_excel_text(v: Any) -> str:
+    """Nettoie un contenu éditorial lu depuis Excel.
+
+    - convertit les fins de ligne réelles \r\n / \r en \n ;
+    - convertit chaque "_x000D_" (retour chariot OOXML non décodé) en \n,
+      en absorbant l'espace ou le \n qui le suit pour ne pas doubler le saut ;
+    - supprime les espaces autour des sauts de ligne ;
+    - limite les sauts consécutifs à une ligne vide au plus ;
+    - compacte les transitions entre balises HTML de bloc (</p>\n\n<p> -> </p>\n<p>).
+
+    Les accents, apostrophes, espaces insécables et balises HTML sont préservés.
+    """
+    s = as_str(v)
+    if not s:
+        return ""
+    if "\r" not in s and "\n" not in s and "_x000" not in s:
+        return s
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = OOXML_CR_RE.sub("\n", s)
+    s = re.sub(r"[ \t]*\n[ \t]*", "\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    s = BLOCK_TAG_TRANSITION_RE.sub(r"\1\n", s)
+    return s.strip()
+
+
+def normalize_editorial_columns(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
+    """Applique normalize_excel_text aux colonnes éditoriales présentes dans df."""
+    for c in cols:
+        if c in df.columns:
+            df[c] = df[c].apply(normalize_excel_text)
+    return df
+
+
 def fmt_display_date(v: Any) -> str:
     """Affiche proprement une date Excel/pandas sans l'heure parasite."""
     if is_na(v):
@@ -1527,6 +1574,7 @@ def load_pages(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     for c in ["slug", "title", "nav_label", "nav_order", "content_md", "is_published", "template"]:
         if c not in df.columns:
             df[c] = None
+    normalize_editorial_columns(df, ["title", "nav_label", "content_md"])
     return df
 
 
@@ -1543,6 +1591,7 @@ def load_collections(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     ]:
         if c not in df.columns:
             df[c] = None
+    normalize_editorial_columns(df, ["name", "description_md", "directeurs", "comite_scientifique"])
     return df
 
 
@@ -1619,9 +1668,9 @@ def load_revues(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["url"] = df["url"].apply(as_str)
     df["issn_print"] = df["issn_print"].apply(as_str)
     df["issn_online"] = df["issn_online"].apply(as_str)
-    df["description_md"] = df["description_md"].apply(lambda x: "" if is_na(x) else str(x))
-    df["direction"] = df["direction"].apply(as_str)
-    df["comite_scientifique"] = df["comite_scientifique"].apply(as_str)
+    df["description_md"] = df["description_md"].apply(lambda x: normalize_excel_text(x) if not is_na(x) else "")
+    df["direction"] = df["direction"].apply(normalize_excel_text)
+    df["comite_scientifique"] = df["comite_scientifique"].apply(normalize_excel_text)
     df["contact_email"] = df["contact_email"].apply(as_str)
     df["is_active"] = df["is_active"].apply(lambda x: True if is_na(x) else norm_bool(x))
     df["order"] = pd.to_numeric(df["order"], errors="coerce")
@@ -1643,6 +1692,7 @@ def load_contacts(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     for c in ["label", "name", "role", "email", "phone", "address", "order", "is_active"]:
         if c not in df.columns:
             df[c] = None
+    normalize_editorial_columns(df, ["label", "name", "role", "address"])
     return df
 
 def detect_actualites_sheet(wb: pd.ExcelFile) -> str:
@@ -1685,10 +1735,10 @@ def load_actualites(wb: pd.ExcelFile) -> pd.DataFrame:
         if c not in df.columns:
             df[c] = None
 
-    df["title"] = df["title"].apply(as_str)
+    df["title"] = df["title"].apply(normalize_excel_text)
     df["image"] = df["image"].apply(as_str)
     df["date"] = df["date"].apply(as_str)
-    df["text"] = df["text"].apply(as_str)
+    df["text"] = df["text"].apply(normalize_excel_text)
     df["is_active"] = df["is_active"].apply(lambda x: True if is_na(x) else norm_bool(x))
     df["id13"] = df["id13"].apply(normalize_id13)
     df["link"] = df["link"].apply(as_str)
@@ -1996,6 +2046,12 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     for c in expected:
         if c not in df.columns:
             df[c] = None
+
+    # Nettoyage des contenus éditoriaux (retours chariot OOXML "_x000D_", etc.)
+    normalize_editorial_columns(df, [
+        "titre_norm", "sous_titre_norm",
+        "Description courte", "Description longue", "Table des matières",
+    ])
 
     df["credit_ligne"] = df["credit_ligne"].fillna("").apply(format_credit_line)
     df["id13"] = df["id13"].apply(normalize_id13)
