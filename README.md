@@ -83,7 +83,7 @@ pip install -r requirements.txt
 
 ## Démarrage rapide
 
-1) Placez votre fichier tableur (par ex. `site_tableur_template.xlsx`) à la racine ou dans `data/`.
+1) Copiez le gabarit officiel `gabarit/purh_site_excel_gabarit.xlsx` (ne travaillez pas directement dans le gabarit) et remplissez votre copie.
 
 2) Placez les logos mentionnés dans la feuille "config" du tableur dans le même répertoire que le fichier tableur
 
@@ -91,8 +91,8 @@ pip install -r requirements.txt
 
 4) Lancez la génération. Soit vous utiliser l'interface graphique gui_tk.py, soit ainsi:
 
-```bash
-python build_site.py --tableur purh_site_tableur_template_v2.xlsx --out dist --covers-dir covers
+```powershell
+.venv\Scripts\python.exe build_site.py --excel chemin\vers\classeur.xlsx --out dist --covers-dir covers
 ```
 
 4) Ouvrez `dist/index.html` dans un navigateur, ou servez en local :
@@ -118,20 +118,34 @@ Puis visitez : `http://localhost:8000`
 
 ### Générer le site
 
-```bash
-python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers
+```powershell
+.venv\Scripts\python.exe build_site.py --excel <classeur.xlsx> --out dist --covers-dir covers
 ```
+
+> `--tableur` (ancien nom de l'option) reste accepté comme alias de `--excel`.
 
 ### Publication (optionnelle)
 
 Si la feuille "config" propose des informations de publication FTP :
 
-```bash
-python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers --publish-ftp
+```powershell
+.venv\Scripts\python.exe build_site.py --excel <classeur.xlsx> --out dist --covers-dir covers --publish-ftp
 ```
 
-> ⚠️ Ne commitez **jamais** de mots de passe FTP dans le dépôt.  
-> Utilisez des variables d’environnement ou un fichier local ignoré par Git (ex. `.env`, `config.local.yml`).
+> ⚠️ Les identifiants FTP (ftp_host, ftp_user, ftp_password…) sont lus dans la feuille CONFIG du classeur.  
+> Ne commitez **jamais** dans le dépôt un classeur contenant un mot de passe FTP.
+
+### Éditeur d'actualités
+
+Un petit éditeur graphique permet de gérer la feuille ACTUS du classeur sans ouvrir Excel :
+
+```powershell
+.venv\Scripts\python.exe actualites_editor.py chemin\vers\classeur.xlsx
+```
+
+- l'ISBN du livre associé, le visuel et le lien externe sont facultatifs et indépendants ;
+- les images importées sont rangées automatiquement dans le dossier `actu/` à côté du classeur ;
+- une sauvegarde horodatée du classeur est créée avant la première modification.
 
 ---
 
@@ -139,7 +153,7 @@ python build_site.py --tableur <classeur.xlsx> --out dist --covers-dir covers --
 
 Le générateur s’appuie sur un classeur dont la structure est volontairement **stable**.  
 Les onglets “éditoriaux” pilotent la navigation et les contenus fixes ; l’onglet “catalogue” pilote les livres.
-Se reporter au fichier exemple
+Se reporter au gabarit officiel : `gabarit/purh_site_excel_gabarit.xlsx` (à copier avant utilisation).
 
 ### Onglets
 
@@ -147,7 +161,7 @@ Se reporter au fichier exemple
 - **PAGES** : pages fixes (slug, titre, contenu, ordre, menu, etc.)
 - **COLLECTIONS** : métadonnées collections + texte de présentation
 - **ACTUS** : Brèves et actualités, qui peuvent alimenter un carrousel sur la page d'accueil
-- **REVUES** : métadonnées revues + texte de présentation
+- **REVUES** : métadonnées revues + texte de présentation. L'onglet peut s'appeler `REVUE` ou `REVUES` (les deux sont acceptés). Il doit contenir **une seule** colonne d'identification, `revue_id` (ne conservez pas `revue_id` et `journal_id` en même temps : la génération s'arrête avec un message d'erreur)
 - **CONTACTS** : adresses, réseaux sociaux, informations institutionnelles
 - **CATALOGUE** (nom libre) : liste des titres (une ligne = un livre)
 

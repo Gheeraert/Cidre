@@ -20,8 +20,7 @@ import build_site
 from build_site import detect_revues_sheet, load_revues
 
 GABARIT = (Path(__file__).resolve().parents[1]
-           / "exemples" / "covers"
-           / "sample_site_excel_gabarit_checked_with_assets.xlsx")
+           / "gabarit" / "purh_site_excel_gabarit.xlsx")
 
 
 def make_workbook(tmp_path: Path, sheet: str, headers: list[str],

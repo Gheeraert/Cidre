@@ -14,8 +14,9 @@ Générateur statique : Excel -> site HTML (sans backend)
 - Recherche + filtres (collection / format / année) côté navigateur, via assets/catalogue.json
 
 Usage:
-  python build_site.py --excel purh_site_excel_template_v4.xlsx --out dist --covers-dir covers
-  python build_site.py --excel purh_site_excel_template_v4.xlsx --out dist --publish-ftp
+  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out dist --covers-dir covers
+  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out dist --publish-ftp
+  (--tableur est accepté comme ancien alias de --excel)
 
 Notes:
 - Les couvertures (images) sont attendues dans --covers-dir et copiées dans dist/covers
@@ -2967,7 +2968,12 @@ def publish_ftp(cfg: SiteConfig, local_dir: Path, progress_cb=None) -> None:
 
     ftp = ftplib.FTP_TLS() if cfg.ftp_tls else ftplib.FTP()
     ftp.connect(host=host, port=port, timeout=30)
-    ftp.login(user=user, passwd=password, secure=False)
+    # FTP.login() n'accepte pas d'argument « secure ». En FTPS, login()
+    # déclenche AUTH TLS (secure=True par défaut) et prot_p() chiffre le
+    # canal de données — même convention que le test de connexion de la GUI.
+    ftp.login(user=user, passwd=password)
+    if isinstance(ftp, ftplib.FTP_TLS):
+        ftp.prot_p()
     ftp.set_pasv(bool(cfg.ftp_passive))
 
     def cwd_mkdir(path: str) -> None:
@@ -3218,7 +3224,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
         publish_ftp(cfg, out_dir, progress_cb=progress_cb)
 
 
-def main():
+def make_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
 
     # options ONIX
@@ -3227,7 +3233,10 @@ def main():
     ap.add_argument("--onix-report", default=None, help="Chemin du CSV de contrôle (erreurs/alertes)")
     ap.add_argument("--onix-strict", action="store_true", help="Mode strict (échec si champs requis manquants)")
 
-    ap.add_argument("--excel", required=True, help="Chemin du classeur Excel")
+    # --tableur : ancien nom de l'option, conservé comme alias ; les deux
+    # formes alimentent la même destination args.excel.
+    ap.add_argument("--excel", "--tableur", dest="excel", required=True,
+                    help="Chemin du classeur Excel (--tableur est un ancien alias accepté)")
     ap.add_argument("--out", default="dist", help="Dossier de sortie")
     ap.add_argument("--covers-dir", default="", help="Dossier contenant les couvertures (images)")
     ap.add_argument("--validate-only", action="store_true", help="Ne génère que validation.csv + catalogue.json")
@@ -3236,7 +3245,11 @@ def main():
 
     ap.add_argument("--publish-ftp", action="store_true",
                     help="Publier le dossier de sortie en FTP/FTPS (selon CONFIG)")
-    args = ap.parse_args()
+    return ap
+
+
+def main():
+    args = make_arg_parser().parse_args()
 
     excel_path = Path(args.excel).expanduser().resolve()
     if not excel_path.exists():
@@ -3260,8 +3273,7 @@ def main():
 
     # 2) export ONIX (ICI)
     if args.export_onix:
-        from export_onix import export_onix_from_excel
-        import os  # assure-toi que c'est aussi importé en haut du fichier si tu préfères
+        from export_onix_py import export_onix_from_excel  # même module que la GUI
 
         onix_out = args.onix_out or str(out_dir / "onix" / "purh_onix.xml")
         report = args.onix_report or str(out_dir / "onix" / "purh_onix_QA.csv")
