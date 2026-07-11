@@ -468,7 +468,7 @@ class EditorApp(tk.Tk):
             return
         if name:
             self.var_image.set(name)
-            self.var_status.set(f"Image copiée dans le dossier « actu » : {name}")
+            self.var_status.set(f"Image copiée dans le dossier « assets/actu » : {name}")
 
     # ------------------------------------------------------------------
     # Enregistrement

@@ -218,21 +218,22 @@ def test_validation_messages(workbook):
 # Images
 # ---------------------------------------------------------------------------
 
-def test_import_image_copie_dans_actu(workbook, tmp_path):
+def test_import_image_copie_dans_assets_actu(workbook, tmp_path):
     store = ActualitesStore(workbook)
     src = tmp_path / "photo.jpg"
     src.write_bytes(b"JPEGDATA")
     name = store.import_image(src, choose("replace"))
     assert name == "photo.jpg"
-    assert (workbook.parent / "actu" / "photo.jpg").read_bytes() == b"JPEGDATA"
+    assert (workbook.parent / "assets" / "actu" / "photo.jpg").read_bytes() == b"JPEGDATA"
     # la valeur stockée est résoluble par la logique de Cidre
     assert store.resolve_image("photo.jpg") is not None
 
 
 def test_import_image_collision(workbook, tmp_path):
     store = ActualitesStore(workbook)
-    (workbook.parent / "actu").mkdir()
-    (workbook.parent / "actu" / "photo.jpg").write_bytes(b"ANCIEN")
+    canon = workbook.parent / "assets" / "actu"
+    canon.mkdir(parents=True)
+    (canon / "photo.jpg").write_bytes(b"ANCIEN")
     src = tmp_path / "photo.jpg"
     src.write_bytes(b"NOUVEAU")
 
@@ -240,15 +241,15 @@ def test_import_image_collision(workbook, tmp_path):
     cb = choose("keep")
     assert store.import_image(src, cb) == "photo.jpg"
     assert cb.calls == ["photo.jpg"]
-    assert (workbook.parent / "actu" / "photo.jpg").read_bytes() == b"ANCIEN"
+    assert (canon / "photo.jpg").read_bytes() == b"ANCIEN"
 
     # annuler
     assert store.import_image(src, choose("cancel")) is None
-    assert (workbook.parent / "actu" / "photo.jpg").read_bytes() == b"ANCIEN"
+    assert (canon / "photo.jpg").read_bytes() == b"ANCIEN"
 
     # remplacer
     assert store.import_image(src, choose("replace")) == "photo.jpg"
-    assert (workbook.parent / "actu" / "photo.jpg").read_bytes() == b"NOUVEAU"
+    assert (canon / "photo.jpg").read_bytes() == b"NOUVEAU"
 
 
 def test_import_image_manquante_ou_mauvais_format(workbook, tmp_path):
@@ -277,7 +278,7 @@ def test_use_cover_copie_depuis_covers(workbook):
     (covers / "9791024017730.jpg").write_bytes(b"COVER")
     name = store.use_cover("9791024017730.jpg", choose("replace"))
     assert name == "9791024017730.jpg"
-    assert (workbook.parent / "actu" / "9791024017730.jpg").read_bytes() == b"COVER"
+    assert (workbook.parent / "assets" / "actu" / "9791024017730.jpg").read_bytes() == b"COVER"
 
 
 def test_use_cover_introuvable(workbook):

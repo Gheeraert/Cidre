@@ -1516,11 +1516,23 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
 """
 
 
+def order_pdf_rel(value: str) -> str:
+    """Chemin du bon de commande relatif à assets/ : 'fichier.pdf' ou 'docs/fichier.pdf'.
+
+    La valeur CONFIG peut être un simple nom, 'docs/fichier.pdf' ou 'assets/docs/fichier.pdf' ;
+    dans tous les cas le fichier est copié vers dist/assets/<rel> et lié en ../assets/<rel>.
+    """
+    rel = as_str(value).replace("\\", "/").strip().lstrip("/")
+    if rel.startswith("assets/"):
+        rel = rel[len("assets/"):]
+    return rel
+
+
 def book_order_block(cfg: SiteConfig, rec: Dict[str, Any]) -> str:
     title = rec.get("title", "")
     id13 = rec.get("id13", "")
     if cfg.order_mode == "pdf" and cfg.order_pdf_filename:
-        return f'<p><a class="btn" href="../assets/{e(cfg.order_pdf_filename)}">Commander (bon de commande)</a></p>'
+        return f'<p><a class="btn" href="../assets/{e(order_pdf_rel(cfg.order_pdf_filename))}">Commander (bon de commande)</a></p>'
     if cfg.order_mode == "url":
         url = rec.get("order_url") or ""
         if not url and cfg.order_url_template:
@@ -1835,6 +1847,10 @@ def resolve_actu_image_source(excel_dir: Path, img: str) -> Optional[Path]:
         return None
     rel = img.replace("\\", "/").strip()
     candidates = [
+        # dossier source canonique : <dossier du classeur>/assets/actu/
+        excel_dir / "assets" / "actu" / rel,
+        excel_dir / "assets" / "actu" / Path(rel).name,
+        # anciens emplacements acceptés pour compatibilité
         excel_dir / rel,
         excel_dir / "assets" / rel,
         excel_dir / "actu" / rel,
@@ -2255,8 +2271,11 @@ def resolve_asset_source(excel_dir: Path, asset_rel: str) -> Optional[Path]:
         return None
     rel = asset_rel.replace("\\", "/")
     # si on a "assets/foo.png", on testera excel_dir/assets/foo.png et excel_dir/foo.png
-    candidates = [
-        excel_dir / rel,
+    candidates = [excel_dir / rel]
+    if rel.startswith("assets/"):
+        # ancien emplacement sans le préfixe assets/ (ex: docs/fichier.pdf à côté du classeur)
+        candidates.append(excel_dir / rel[len("assets/"):])
+    candidates += [
         excel_dir / Path(rel).name,
         excel_dir / "assets" / Path(rel).name,
     ]
@@ -2279,11 +2298,8 @@ def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> No
 
     declared = [cfg.logo_left, cfg.logo_right, cfg.favicon, cfg.footer_logo]
     if cfg.order_mode == "pdf" and cfg.order_pdf_filename:
-        declared.append(
-            f"assets/{cfg.order_pdf_filename}"
-            if "/" not in cfg.order_pdf_filename and "\\" not in cfg.order_pdf_filename
-            else cfg.order_pdf_filename
-        )
+        # Toujours sous dist/assets/, pour correspondre au lien ../assets/<rel>
+        declared.append(f"assets/{order_pdf_rel(cfg.order_pdf_filename)}")
 
     for rel in declared:
         rel = as_str(rel)

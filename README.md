@@ -219,6 +219,25 @@ Recommandation :
 
 ---
 
+## Organisation des fichiers sources
+
+À côté du classeur Excel, les fichiers référencés par la CONFIG et les actualités
+sont recherchés en priorité dans un dossier `assets/` :
+
+```text
+dossier-du-classeur/
+├─ classeur.xlsx
+├─ assets/
+│  ├─ actu/        images des actualités (dossier d'import de l'éditeur)
+│  ├─ social/      icônes des réseaux (instagram.svg, …)
+│  ├─ docs/        PDF (ex. bon de commande, avec order_pdf_filename = docs/bon.pdf)
+│  └─ logo.png, favicon.ico…   logos et favicon à la racine de assets/
+└─ covers/         couvertures
+```
+
+Les anciens emplacements restent acceptés en repli : fichiers posés à la racine
+du dossier du classeur, ou dans `actu/`, `social/`, `images/`.
+
 ## Sorties générées
 
 Dans le dossier `dist/` :
@@ -231,8 +250,11 @@ Dans le dossier `dist/` :
 - `revues/` (pages revue)
 - `pages/` (pages fixes, selon votre architecture)
 - `assets/`
-  - `catalogue.json`
-  - CSS/JS/images copiés depuis le thème
+  - `catalogue.json`, `actualites.json`
+  - `actu/` (images des actualités)
+  - `social/` (icônes des réseaux)
+  - `docs/` (PDF déclarés avec un sous-chemin `docs/…`)
+  - logos et favicon à la racine
 - `covers/` (couvertures copiées)
 
 ---

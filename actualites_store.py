@@ -40,9 +40,12 @@ class WorkbookLockedError(ActuError):
 
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
-# Nom du dossier canonique des images d'actualités, à côté du classeur.
-# build_site.resolve_actu_image_source() cherche notamment dans excel_dir/"actu"/<nom>.
-IMAGES_DIRNAME = "actu"
+# Dossier canonique des images d'actualités, à côté du classeur.
+# build_site.resolve_actu_image_source() cherche d'abord dans excel_dir/"assets"/"actu"/<nom>.
+IMAGES_DIRNAME = "assets/actu"
+
+# Ancien dossier d'import, toujours accepté en lecture pour compatibilité.
+LEGACY_IMAGES_DIRNAME = "actu"
 
 
 def _slug(s: str) -> str:
@@ -355,6 +358,10 @@ class ActualitesStore:
         excel_dir = self.path.parent
         rel = img.replace("\\", "/").strip()
         candidates = [
+            # dossier source canonique : <dossier du classeur>/assets/actu/
+            excel_dir / "assets" / "actu" / rel,
+            excel_dir / "assets" / "actu" / Path(rel).name,
+            # anciens emplacements acceptés pour compatibilité
             excel_dir / rel,
             excel_dir / "assets" / rel,
             excel_dir / "actu" / rel,
@@ -403,7 +410,8 @@ class ActualitesStore:
             return None
         name = Path(cover_file.replace("\\", "/")).name
         excel_dir = self.path.parent
-        for d in (excel_dir / "covers", excel_dir / IMAGES_DIRNAME, excel_dir / "assets",
+        for d in (excel_dir / "covers", excel_dir / IMAGES_DIRNAME,
+                  excel_dir / LEGACY_IMAGES_DIRNAME, excel_dir / "assets",
                   excel_dir / "images", excel_dir, excel_dir / "dist" / "covers"):
             p = d / name
             if p.exists() and p.is_file():
