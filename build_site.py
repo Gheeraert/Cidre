@@ -1675,10 +1675,25 @@ def load_revues(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df = wb.parse(sheet_name=sh)
     df.columns = [str(c).strip() for c in df.columns]
 
+    # En-têtes acceptés pour l'identifiant de revue (formes slugifiées).
+    # L'alias générique « id » est conservé pour les anciens classeurs, mais
+    # sa présence à côté d'un alias explicite est traitée comme une collision.
+    id_aliases = {"journal-id", "revue-id", "review-id", "id"}
+    id_headers = [c for c in df.columns if slugify(str(c)) in id_aliases]
+    if len(id_headers) > 1:
+        # Sans ce contrôle, le renommage produirait deux colonnes homonymes
+        # « journal_id » et un traceback pandas incompréhensible.
+        concurrents = " et ".join(f"« {h} »" for h in id_headers)
+        raise ValueError(
+            f"La feuille « {sh} » contient plusieurs colonnes servant "
+            f"d'identifiant de revue : {concurrents}. "
+            "Conservez une seule de ces colonnes."
+        )
+
     colmap = {}
     for c in df.columns:
         lc = slugify(str(c))
-        if lc in {"journal-id", "journal_id", "revue-id", "revue_id", "id", "review_id"}:
+        if lc in id_aliases:
             colmap[c] = "journal_id"
         elif lc in {"title", "titre", "name", "nom"}:
             colmap[c] = "title"
