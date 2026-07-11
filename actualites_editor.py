@@ -10,16 +10,79 @@
 
 from __future__ import annotations
 
+import html
+import re
 import sys
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from actualites_store import (
     ActualitesStore, Actu, ActuError, WorkbookLockedError,
     format_date_fr, parse_date_fr,
 )
+
+
+# ----------------------------------------------------------------------
+# Mise en forme du champ Texte — fonctions pures, testables sans Tkinter.
+#
+# Les balises produites ici sont celles que build_site.py autorise dans
+# les actualités : <em>, <strong>, <span class="small-caps">, <a href>.
+# ----------------------------------------------------------------------
+
+FORMAT_TAGS = {
+    "em": ("<em>", "</em>"),
+    "strong": ("<strong>", "</strong>"),
+    "small-caps": ('<span class="small-caps">', "</span>"),
+}
+
+
+def wrap_selection(text: str, start: int, end: int,
+                   open_tag: str, close_tag: str) -> tuple[str, int, int]:
+    """Entoure text[start:end] avec open_tag/close_tag sans toucher au reste.
+
+    Renvoie (nouveau_texte, début_contenu, fin_contenu) : les bornes du
+    contenu entre les deux balises. Si la sélection était vide, les deux
+    bornes coïncident : c'est la position du curseur entre les balises.
+    """
+    if not (0 <= start <= end <= len(text)):
+        raise ValueError("Bornes de sélection invalides.")
+    selected = text[start:end]
+    new_text = text[:start] + open_tag + selected + close_tag + text[end:]
+    content_start = start + len(open_tag)
+    return new_text, content_start, content_start + len(selected)
+
+
+def validate_link_url(url: str) -> str:
+    """Renvoie l'URL nettoyée ; lève ValueError si elle n'est pas en http(s)."""
+    u = (url or "").strip()
+    if not re.match(r"^https?://", u, flags=re.I) or re.search(r"\s", u):
+        raise ValueError(
+            "L'adresse du lien doit commencer par http:// ou https://\n"
+            "(ex. https://exemple.fr) et ne pas contenir d'espace."
+        )
+    return u
+
+
+def escape_href(url: str) -> str:
+    """Échappe une URL pour la valeur d'un attribut href (guillemets, &, <, >)."""
+    return html.escape(url, quote=True)
+
+
+def link_open_tag(url: str) -> str:
+    """Balise <a href="…"> pour entourer une sélection. Lève ValueError si URL invalide."""
+    return f'<a href="{escape_href(validate_link_url(url))}">'
+
+
+def link_markup(url: str, label: str = "") -> str:
+    """Lien complet quand rien n'est sélectionné : le libellé est échappé.
+
+    Sans libellé, l'URL elle-même sert de texte visible.
+    """
+    u = validate_link_url(url)
+    text = html.escape(label, quote=False) if label else html.escape(u, quote=False)
+    return f'<a href="{escape_href(u)}">{text}</a>'
 
 
 class EditorApp(tk.Tk):
@@ -82,9 +145,29 @@ class EditorApp(tk.Tk):
 
         r += 1
         ttk.Label(form, text="Texte :").grid(row=r, column=0, sticky="ne", **pad)
+        toolbar = ttk.Frame(form)
+        toolbar.grid(row=r, column=1, columnspan=3, sticky="w", padx=8, pady=(4, 0))
+        ttk.Button(toolbar, text="Italique",
+                   command=lambda: self.apply_format("em")).pack(side="left")
+        ttk.Button(toolbar, text="Gras",
+                   command=lambda: self.apply_format("strong")).pack(side="left", padx=(6, 0))
+        ttk.Button(toolbar, text="Petites capitales",
+                   command=lambda: self.apply_format("small-caps")).pack(side="left", padx=(6, 0))
+        ttk.Button(toolbar, text="Lien…",
+                   command=self.insert_link).pack(side="left", padx=(6, 0))
+        ttk.Label(toolbar, text="Ctrl+I : italique — Ctrl+B : gras",
+                  foreground="#555").pack(side="left", padx=(12, 0))
+
+        r += 1
         self.txt_text = tk.Text(form, height=7, wrap="word", undo=True)
-        self.txt_text.grid(row=r, column=1, columnspan=3, sticky="nsew", **pad)
+        self.txt_text.grid(row=r, column=1, columnspan=3, sticky="nsew", padx=8, pady=(0, 4))
         form.rowconfigure(r, weight=1)
+        # "break" empêche les liaisons par défaut de la classe Text
+        # (Ctrl+I insère une tabulation, Ctrl+B recule le curseur).
+        for seq in ("<Control-i>", "<Control-I>"):
+            self.txt_text.bind(seq, lambda e: self.apply_format("em"))
+        for seq in ("<Control-b>", "<Control-B>"):
+            self.txt_text.bind(seq, lambda e: self.apply_format("strong"))
 
         r += 1
         ttk.Label(form, text="Date (JJ/MM/AAAA) :").grid(row=r, column=0, sticky="e", **pad)
@@ -137,6 +220,69 @@ class EditorApp(tk.Tk):
         ttk.Button(bottom, text="Enregistrer", command=self.save).pack(side="left")
         self.var_status = tk.StringVar(value="Prêt.")
         ttk.Label(bottom, textvariable=self.var_status).pack(side="left", padx=12)
+
+    # ------------------------------------------------------------------
+    # Mise en forme du champ Texte
+    # ------------------------------------------------------------------
+
+    def _text_selection(self) -> tuple[str, str, str]:
+        """(index début, index fin, texte sélectionné) ; sélection vide = curseur."""
+        txt = self.txt_text
+        try:
+            start, end = txt.index("sel.first"), txt.index("sel.last")
+        except tk.TclError:
+            start = end = txt.index("insert")
+        return start, end, txt.get(start, end)
+
+    def _replace_range(self, start: str, end: str, fragment: str,
+                       sel_from: int, sel_to: int) -> None:
+        """Remplace [start, end] par fragment et resélectionne fragment[sel_from:sel_to]."""
+        txt = self.txt_text
+        if start != end:
+            txt.delete(start, end)
+        txt.insert(start, fragment)
+        content_start = txt.index(f"{start}+{sel_from}c")
+        content_end = txt.index(f"{start}+{sel_to}c")
+        txt.tag_remove("sel", "1.0", "end")
+        if sel_to > sel_from:
+            txt.tag_add("sel", content_start, content_end)
+        txt.mark_set("insert", content_end)
+        txt.focus_set()
+
+    def apply_format(self, kind: str) -> str:
+        """Entoure la sélection avec les balises de `kind` (em, strong, small-caps)."""
+        open_tag, close_tag = FORMAT_TAGS[kind]
+        start, end, selected = self._text_selection()
+        fragment, c0, c1 = wrap_selection(selected, 0, len(selected), open_tag, close_tag)
+        self._replace_range(start, end, fragment, c0, c1)
+        return "break"  # neutralise la liaison par défaut du widget Text
+
+    def insert_link(self):
+        start, end, selected = self._text_selection()
+        url = simpledialog.askstring(
+            "Lien hypertexte",
+            "Adresse du lien (elle doit commencer par http:// ou https://) :",
+            parent=self)
+        if url is None:
+            return
+        try:
+            if selected:
+                open_tag = link_open_tag(url)
+                fragment, c0, c1 = wrap_selection(selected, 0, len(selected),
+                                                  open_tag, "</a>")
+            else:
+                label = simpledialog.askstring(
+                    "Lien hypertexte",
+                    "Texte visible du lien (laissez vide pour afficher l'adresse) :",
+                    parent=self)
+                if label is None:
+                    return
+                fragment = link_markup(url, (label or "").strip())
+                c0 = c1 = len(fragment)  # curseur après le lien
+        except ValueError as err:
+            messagebox.showerror("Lien", str(err))
+            return
+        self._replace_range(start, end, fragment, c0, c1)
 
     # ------------------------------------------------------------------
     # Liste

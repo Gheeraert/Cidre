@@ -443,6 +443,48 @@ def sanitize_html_fragment(s: str) -> str:
     s = re.sub(r"(?i)\son\w+\s*=\s*'[^']*'", "", s)
     return s
 
+_ACTU_A_OPEN_RE = re.compile(r"(?is)<a\b[^>]*>")
+_ACTU_SPAN_OPEN_RE = re.compile(r"(?is)<span\b[^>]*>")
+_ACTU_HREF_RE = re.compile(r"""(?is)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_ACTU_CLASS_RE = re.compile(r"""(?is)\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def sanitize_actu_html(s: str) -> str:
+    """Sanitization des fragments HTML d'actualités.
+
+    En plus de sanitize_html_fragment (script/style, attributs on*) :
+    - <a> : seules les URL http:// et https:// sont conservées ; les autres
+      protocoles (javascript:, data:, …) sont supprimés avec tous les
+      attributs de la balise. Les liens conservés reçoivent
+      target="_blank" rel="noopener" (convention du site pour les liens
+      externes) et leur href est ré-échappé ;
+    - <span> : seule la classe small-caps est conservée ; toute autre
+      classe ou attribut est retiré.
+    Les balises légères (<em>, <i>, <strong>, <b>, <p>, <br>…) passent
+    telles quelles, comme avant.
+    """
+    s = sanitize_html_fragment(s or "")
+
+    def _fix_a(m: re.Match) -> str:
+        hm = _ACTU_HREF_RE.search(m.group(0))
+        href = html.unescape((hm.group(1) or hm.group(2) or "")).strip() if hm else ""
+        if re.match(r"^https?://", href, flags=re.I) and not re.search(r"\s", href):
+            return (f"<a href='{html.escape(href, quote=True)}'"
+                    " target='_blank' rel='noopener'>")
+        return "<a>"  # protocole non autorisé ou href absent : lien neutralisé
+
+    def _fix_span(m: re.Match) -> str:
+        cm = _ACTU_CLASS_RE.search(m.group(0))
+        cls = (cm.group(1) or cm.group(2) or "").strip() if cm else ""
+        if cls == "small-caps":
+            return "<span class='small-caps'>"
+        return "<span>"
+
+    s = _ACTU_A_OPEN_RE.sub(_fix_a, s)
+    s = _ACTU_SPAN_OPEN_RE.sub(_fix_span, s)
+    return s
+
+
 def html_to_text(s: str) -> str:
     """Texte brut à partir d'un fragment HTML."""
     s = (s or "").replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
@@ -866,6 +908,12 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
 @media (prefers-reduced-motion: reduce){
   .news-card{ transition: none; }
   .news-card:hover{ transform: none; }
+}
+
+/* Petites capitales (contenu éditorial : actualités, etc.) */
+.small-caps{
+  font-variant: small-caps;
+  font-variant-caps: small-caps;
 }
 """
 
@@ -1854,7 +1902,7 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Option
         if text_md:
             # Markdown -> HTML (comme le reste du site)
             text_html = md_to_html(text_md)
-            text_html = sanitize_html_fragment(text_html)
+            text_html = sanitize_actu_html(text_html)
 
             # Extrait texte (pour carrousel)
             excerpt = _excerpt(html_to_text(text_html), 220)
@@ -1999,7 +2047,7 @@ def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
         title_html = f"<a href='{e(href)}' style='color:inherit;text-decoration:none'>" \
                      f"<div style='font-weight:750;font-size:1.15rem;line-height:1.2'>{title}</div></a>"
         # html_frag est déjà “sanitized” au build_json (mais on peut re-sécuriser)
-        html_frag = sanitize_html_fragment(as_str(html_frag))
+        html_frag = sanitize_actu_html(as_str(html_frag))
 
         img_html = (
             f"<a href='{e(href)}' style='display:block'>"
