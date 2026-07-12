@@ -1788,6 +1788,49 @@ def build_revue_slug_map(revues: pd.DataFrame) -> Dict[str, str]:
     return out
 
 
+def build_collection_slug_map(collections: pd.DataFrame,
+                              books: Optional[pd.DataFrame] = None) -> Dict[str, str]:
+    """Table collection_id (slugifié) -> slug public de collections/<slug>.html.
+
+    Reproduit exactement la règle de nommage de build_collections (slug de la
+    feuille, sinon collection_id) pour que le badge des fiches livres pointe
+    vers la page réellement écrite, même quand collection_id diffère du slug
+    (ex. col-classiques -> classiques.html).
+
+    Une collection inactive (aucune page générée) est présente avec la valeur
+    "" pour que le badge soit rendu sans lien plutôt qu'en URL 404.
+    """
+    out: Dict[str, str] = {}
+    if collections is None or collections.empty:
+        # même dérivation que build_collections : sans feuille COLLECTIONS,
+        # les pages sont créées depuis les noms de collection du catalogue.
+        if books is not None and not books.empty and "collection" in books.columns:
+            for n in {as_str(x) for x in books["collection"].dropna().tolist() if as_str(x)}:
+                cid = slugify(n)
+                out[cid] = cid
+        return out
+    for _, c in collections.iterrows():
+        raw_cid = as_str(c.get("collection_id"))
+        raw_slug = as_str(c.get("slug"))
+        cid = slugify(raw_cid) if raw_cid else (slugify(raw_slug) if raw_slug else "")
+        if not cid:
+            continue
+        if norm_bool(c.get("is_active")):
+            target = slugify(raw_slug) if raw_slug else cid
+        else:
+            target = ""
+        if cid in out and out[cid] and target and out[cid] != target:
+            raise ValueError(
+                f"La feuille COLLECTIONS contient plusieurs lignes actives avec "
+                f"l'identifiant « {raw_cid or raw_slug} » menant à des pages "
+                f"différentes (« {out[cid]}.html » et « {target}.html »). "
+                "Conservez une seule de ces lignes."
+            )
+        if target or cid not in out:
+            out[cid] = target
+    return out
+
+
 def load_contacts(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     if sheet not in wb.sheet_names:
         return pd.DataFrame()
@@ -2609,7 +2652,8 @@ def build_upcoming_page(cfg: SiteConfig, upcoming: pd.DataFrame, out_dir: Path) 
 
 
 def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
-                     revue_slugs: Optional[Dict[str, str]] = None) -> None:
+                     revue_slugs: Optional[Dict[str, str]] = None,
+                     collection_slugs: Optional[Dict[str, str]] = None) -> None:
     livres_dir = out_dir / "livres"
     livres_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2652,7 +2696,20 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
                 else:
                     # revue inactive : pas de page générée, badge sans lien
                     badges.append(f"<span class='badge'>{e(collection)}</span>")
+            elif collection_slugs is not None:
+                # Collection : lien vers la page réellement générée
+                cslug = collection_slugs.get(collection_id)
+                if cslug:
+                    badges.append(
+                        f"<a class='badge' href='../collections/{e(cslug)}.html'>"
+                        f"{e(collection)}</a>"
+                    )
+                else:
+                    # collection inactive ou identifiant inconnu : pas de page
+                    # générée, badge sans lien plutôt qu'une URL 404
+                    badges.append(f"<span class='badge'>{e(collection)}</span>")
             else:
+                # appel historique sans mapping : lien fondé sur l'identifiant
                 badges.append(
                     f"<a class='badge' href='../collections/{e(collection_id)}.html'>"
                     f"{e(collection)}</a>"
@@ -3272,7 +3329,9 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     # build_actualites_page(cfg, out_dir)
     # build_contacts(cfg, contacts, out_dir)
 
-    build_book_pages(cfg, books, out_dir, revue_slugs=build_revue_slug_map(revues))
+    build_book_pages(cfg, books, out_dir,
+                     revue_slugs=build_revue_slug_map(revues),
+                     collection_slugs=build_collection_slug_map(collections, books))
     build_collections(cfg, books, collections, out_dir)
     build_revues(cfg, revues, out_dir)
 

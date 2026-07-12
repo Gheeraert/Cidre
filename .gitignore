@@ -55,5 +55,11 @@ secrets.*
 ~$*.xls
 *.xlsb
 
+# Classeurs de production placés à la racine
+/*.xlsx
+
+# Sauvegardes produites par l’éditeur d’actualités
+*.sauvegarde-*.xlsx
+
 # --- Compilation Nuitka (build_exe.bat) — on ne versionne pas les binaires
 build_exe/
