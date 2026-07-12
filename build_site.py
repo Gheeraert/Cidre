@@ -1761,6 +1761,33 @@ def load_revues(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     return df
 
 
+def build_revue_slug_map(revues: pd.DataFrame) -> Dict[str, str]:
+    """Table journal_id (slugifié) -> slug public de la page revues/<slug>.html.
+
+    Les livres du catalogue rattachés à une revue portent le journal_id de
+    celle-ci en collection_id (slugifié par load_books) ; cette table permet
+    à build_book_pages de pointer le badge vers la page de revue réellement
+    générée par build_revues, et non vers collections/<journal_id>.html.
+
+    Une revue inactive (aucune page générée) est présente avec la valeur ""
+    pour que le badge soit rendu sans lien plutôt qu'en URL 404.
+    """
+    out: Dict[str, str] = {}
+    if revues is None or revues.empty:
+        return out
+    for _, r in revues.iterrows():
+        jid = slugify(as_str(r.get("journal_id")))
+        if not jid:
+            continue
+        if norm_bool(r.get("is_active")):
+            # même calcul de slug que build_revues
+            out[jid] = slugify(as_str(r.get("slug")) or as_str(r.get("title"))
+                               or as_str(r.get("journal_id")) or "revue")
+        else:
+            out.setdefault(jid, "")
+    return out
+
+
 def load_contacts(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     if sheet not in wb.sheet_names:
         return pd.DataFrame()
@@ -2581,7 +2608,8 @@ def build_upcoming_page(cfg: SiteConfig, upcoming: pd.DataFrame, out_dir: Path) 
     write_file(out_dir / "a-paraitre.html", page_shell(cfg, f"{cfg.site_title} — {title}", "a_paraitre", body, "."))
 
 
-def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
+def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
+                     revue_slugs: Optional[Dict[str, str]] = None) -> None:
     livres_dir = out_dir / "livres"
     livres_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2613,10 +2641,22 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> Non
 
         # ✅ Collection cliquable (si on a collection_id)
         if collection and collection_id:
-            badges.append(
-                f"<a class='badge' href='../collections/{e(collection_id)}.html'>"
-                f"{e(collection)}</a>"
-            )
+            if revue_slugs is not None and collection_id in revue_slugs:
+                # Numéro de revue : la page est générée sous revues/<slug>.html
+                rslug = revue_slugs[collection_id]
+                if rslug:
+                    badges.append(
+                        f"<a class='badge' href='../revues/{e(rslug)}.html'>"
+                        f"{e(collection)}</a>"
+                    )
+                else:
+                    # revue inactive : pas de page générée, badge sans lien
+                    badges.append(f"<span class='badge'>{e(collection)}</span>")
+            else:
+                badges.append(
+                    f"<a class='badge' href='../collections/{e(collection_id)}.html'>"
+                    f"{e(collection)}</a>"
+                )
         elif collection:
             badges.append(f"<span class='badge'>{e(collection)}</span>")
 
@@ -3232,7 +3272,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     # build_actualites_page(cfg, out_dir)
     # build_contacts(cfg, contacts, out_dir)
 
-    build_book_pages(cfg, books, out_dir)
+    build_book_pages(cfg, books, out_dir, revue_slugs=build_revue_slug_map(revues))
     build_collections(cfg, books, collections, out_dir)
     build_revues(cfg, revues, out_dir)
 
