@@ -916,10 +916,18 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
   font-variant: small-caps;
   font-variant-caps: small-caps;
 }
+
+/* Pagination progressive des grilles de cartes (collections, revues).
+   La classe n'est posée que par JS : sans JS, toutes les cartes restent visibles. */
+.card-progressive-hidden{ display:none; }
 """
 
+# Taille commune des lots de cartes : catalogue général (PAGE_SIZE côté JS)
+# et révélation progressive des pages de collections et de revues.
+CARD_PAGE_SIZE = 60
+
 DEFAULT_JS = r"""
-const PAGE_SIZE = 60;
+const PAGE_SIZE = __CARD_PAGE_SIZE__;
 let limit = PAGE_SIZE;
 let timer = null;
 
@@ -1037,7 +1045,47 @@ async function main(){
   render();
 }
 main();
-"""
+""".replace("__CARD_PAGE_SIZE__", str(CARD_PAGE_SIZE))
+
+# Révélation progressive des cartes déjà rendues côté Python (collections,
+# revues). Sans JS, aucune carte n'est masquée et le bouton reste hidden.
+PROGRESSIVE_CARDS_JS = r"""
+(function(){
+  var SIZE = __CARD_PAGE_SIZE__;
+  var grids = document.querySelectorAll(".progressive-card-grid");
+  Array.prototype.forEach.call(grids, function(grid, idx){
+    if (grid.dataset.progressiveInit) return;
+    grid.dataset.progressiveInit = "1";
+
+    var cards = grid.querySelectorAll(".card");
+    var actions = grid.nextElementSibling;
+    if (actions && !actions.classList.contains("progressive-card-actions")) actions = null;
+    var btn = actions ? actions.querySelector(".progressive-card-more") : null;
+
+    if (cards.length <= SIZE || !btn) {
+      if (actions) actions.hidden = true;
+      return;
+    }
+
+    if (!grid.id) grid.id = "progressive-card-grid-" + (idx + 1);
+    btn.setAttribute("aria-controls", grid.id);
+
+    var visible = SIZE;
+    function apply(){
+      Array.prototype.forEach.call(cards, function(card, i){
+        card.classList.toggle("card-progressive-hidden", i >= visible);
+      });
+      var done = visible >= cards.length;
+      btn.setAttribute("aria-expanded", done ? "true" : "false");
+      btn.hidden = done;
+      actions.hidden = done;
+    }
+    btn.addEventListener("click", function(){ visible += SIZE; apply(); });
+    btn.hidden = false;
+    apply();
+  });
+})();
+""".replace("__CARD_PAGE_SIZE__", str(CARD_PAGE_SIZE))
 
 NEWS_CAROUSEL_JS = r"""
 (async function(){
@@ -2527,6 +2575,29 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
 </div>
 """.strip()
 
+
+def _progressive_cards_html(cards: List[str], empty_message: str) -> str:
+    """Grille de cartes avec révélation progressive par lots de CARD_PAGE_SIZE.
+
+    Toutes les cartes sont présentes dans le HTML (lisibles sans JS) ; le
+    script ne fait que masquer celles au-delà du premier lot et révéler les
+    suivantes via le bouton « Afficher plus ». Jusqu'à CARD_PAGE_SIZE cartes,
+    ni bouton ni script ne sont émis.
+    """
+    if not cards:
+        return f"<p class='small'>{e(empty_message)}</p>"
+    grid = f"<div class='grid progressive-card-grid'>{chr(10).join(cards)}</div>"
+    if len(cards) <= CARD_PAGE_SIZE:
+        return grid
+    return (
+        f"{grid}\n"
+        "<p class='progressive-card-actions'>"
+        "<button type='button' class='btn progressive-card-more' hidden>Afficher plus</button>"
+        "</p>\n"
+        f"<script>{PROGRESSIVE_CARDS_JS}</script>"
+    )
+
+
 def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
     df = books.copy()
     social_html = render_social_strip(cfg, out_dir)
@@ -2826,7 +2897,8 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         dfb = dfb.sort_values(["year", "titre_norm"], ascending=[False, True])
 
         cards = [_book_card_html(r, "..", cfg) for _, r in dfb.iterrows()]
-        cards_html = f"<div class='grid'>{chr(10).join(cards)}</div>" if cards else "<p class='small'>Aucun ouvrage rattaché trouvé (vérifier collection_id dans le catalogue).</p>"
+        cards_html = _progressive_cards_html(
+            cards, "Aucun ouvrage rattaché trouvé (vérifier collection_id dans le catalogue).")
 
         meta = []
         if issn_print:
@@ -2943,7 +3015,7 @@ def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out
         dfb = dfb.sort_values(["year", "titre_norm"], ascending=[False, True])
 
         cards = [_book_card_html(b, "..", cfg) for _, b in dfb.iterrows()]
-        cards_html = f"<div class='grid'>{chr(10).join(cards)}</div>" if cards else "<p class='small'>Aucun numéro rattaché trouvé.</p>"
+        cards_html = _progressive_cards_html(cards, "Aucun numéro rattaché trouvé.")
 
         body = f"""
 <h2>{e(title)}</h2>
