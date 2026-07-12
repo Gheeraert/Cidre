@@ -2871,7 +2871,7 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         slug = as_str(c.get("slug") or cid)
         write_file(base / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {name}", "collections", body, ".."))
 
-def build_revues(cfg: SiteConfig, revues: pd.DataFrame, out_dir: Path) -> None:
+def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out_dir: Path) -> None:
     base = out_dir / "revues"
     base.mkdir(parents=True, exist_ok=True)
     if revues.empty:
@@ -2933,10 +2933,24 @@ def build_revues(cfg: SiteConfig, revues: pd.DataFrame, out_dir: Path) -> None:
             meta.append(
                 f"<div class='kv'><div class='k'>Contact</div><div><a href='mailto:{e(mail)}'>{e(mail)}</a></div></div>")
 
+        # Numéros rattachés : même mécanisme que les badges des fiches livres
+        # (collection_id du livre == journal_id slugifié de la revue).
+        jid = slugify(as_str(r.get("journal_id")))
+        if jid and "collection_id" in books.columns:
+            dfb = books[books["collection_id"] == jid].copy()
+        else:
+            dfb = books.iloc[0:0].copy()
+        dfb = dfb.sort_values(["year", "titre_norm"], ascending=[False, True])
+
+        cards = [_book_card_html(b, "..", cfg) for _, b in dfb.iterrows()]
+        cards_html = f"<div class='grid'>{chr(10).join(cards)}</div>" if cards else "<p class='small'>Aucun numéro rattaché trouvé.</p>"
+
         body = f"""
 <h2>{e(title)}</h2>
 {''.join(meta)}
 {desc if desc else ""}
+<h3>Numéros parus</h3>
+{cards_html}
 """
         write_file(base / f"{as_str(r.get('slug'))}.html",
                    page_shell(cfg, f"{cfg.site_title} — {title}", "revues", body, ".."))
@@ -3333,7 +3347,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
                      revue_slugs=build_revue_slug_map(revues),
                      collection_slugs=build_collection_slug_map(collections, books))
     build_collections(cfg, books, collections, out_dir)
-    build_revues(cfg, revues, out_dir)
+    build_revues(cfg, books, revues, out_dir)
 
     if publish:
         publish_ftp(cfg, out_dir, progress_cb=progress_cb)
