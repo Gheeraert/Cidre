@@ -64,6 +64,91 @@ def test_export_onix_reel_sur_gabarit(tmp_path):
 
 
 # ----------------------------------------------------------------------
+# Création des dossiers parents du XML et du rapport QA (--onix-out /
+# --onix-report) : matrice A-F. Le faux exporteur écrit réellement les
+# deux fichiers, donc échoue comme le vrai (pandas to_csv) si un dossier
+# parent manque.
+# ----------------------------------------------------------------------
+
+def _run_cli_onix(tmp_path, monkeypatch, extra_args):
+    calls = []
+
+    def spy(**kwargs):
+        calls.append(kwargs)
+        Path(kwargs["out_xml_path"]).write_text("<ONIXMessage/>", encoding="utf-8")
+        Path(kwargs["report_csv_path"]).write_text(
+            "row_index,isbn13,title,issue\n", encoding="utf-8")
+        return kwargs["out_xml_path"], []
+
+    monkeypatch.setattr(export_onix_py, "export_onix_from_excel", spy)
+    out = tmp_path / "dist"
+    monkeypatch.setattr(sys, "argv", [
+        "build_site.py", "--excel", str(GABARIT), "--out", str(out), *extra_args,
+    ])
+    build_site.main()
+    return out, calls
+
+
+def test_onix_dossiers_cas_a_chemins_par_defaut(tmp_path, monkeypatch):
+    """Cas A : XML et rapport QA créés à leurs emplacements par défaut."""
+    out, calls = _run_cli_onix(tmp_path, monkeypatch, ["--export-onix"])
+    assert len(calls) == 1
+    assert (out / "onix" / "purh_onix.xml").exists()
+    assert (out / "onix" / "purh_onix_QA.csv").exists()
+
+
+def test_onix_dossiers_cas_b_onix_out_personnalise(tmp_path, monkeypatch):
+    """Cas B (bug reproduit) : --onix-out seul ; le dossier par défaut du
+    rapport QA doit aussi être créé."""
+    xml = tmp_path / "custom" / "export.xml"
+    out, calls = _run_cli_onix(
+        tmp_path, monkeypatch, ["--export-onix", "--onix-out", str(xml)])
+    assert len(calls) == 1
+    assert xml.exists()
+    assert (out / "onix").is_dir()
+    assert (out / "onix" / "purh_onix_QA.csv").exists()
+
+
+def test_onix_dossiers_cas_c_onix_report_personnalise(tmp_path, monkeypatch):
+    """Cas C : --onix-report seul ; son dossier est créé, XML par défaut."""
+    report = tmp_path / "rapports" / "rapport.csv"
+    out, calls = _run_cli_onix(
+        tmp_path, monkeypatch, ["--export-onix", "--onix-report", str(report)])
+    assert len(calls) == 1
+    assert report.exists()
+    assert (out / "onix" / "purh_onix.xml").exists()
+
+
+def test_onix_dossiers_cas_d_deux_chemins_personnalises(tmp_path, monkeypatch):
+    """Cas D : deux chemins personnalisés, les deux arborescences créées."""
+    xml = tmp_path / "dossier-a" / "export.xml"
+    report = tmp_path / "dossier-b" / "rapport.csv"
+    out, calls = _run_cli_onix(tmp_path, monkeypatch, [
+        "--export-onix", "--onix-out", str(xml), "--onix-report", str(report)])
+    assert len(calls) == 1
+    assert xml.exists()
+    assert report.exists()
+
+
+def test_onix_dossiers_cas_e_niveaux_imbriques(tmp_path, monkeypatch):
+    """Cas E : plusieurs niveaux inexistants (parents=True)."""
+    xml = tmp_path / "a" / "b" / "c" / "export.xml"
+    report = tmp_path / "x" / "y" / "z" / "rapport.csv"
+    out, calls = _run_cli_onix(tmp_path, monkeypatch, [
+        "--export-onix", "--onix-out", str(xml), "--onix-report", str(report)])
+    assert len(calls) == 1
+    assert xml.exists()
+    assert report.exists()
+
+
+def test_onix_dossiers_cas_f_sans_export_onix(tmp_path, monkeypatch):
+    """Cas F : sans --export-onix, aucun dossier onix créé, exporteur non appelé."""
+    out, calls = _run_cli_onix(tmp_path, monkeypatch, [])
+    assert calls == []
+    assert not (out / "onix").exists()
+
+
+# ----------------------------------------------------------------------
 # publish_ftp : faux objets ftplib, aucune connexion réelle
 # ----------------------------------------------------------------------
 

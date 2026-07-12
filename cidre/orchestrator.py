@@ -221,7 +221,8 @@ def main():
 
         onix_out = args.onix_out or str(out_dir / "onix" / "purh_onix.xml")
         report = args.onix_report or str(out_dir / "onix" / "purh_onix_QA.csv")
-        os.makedirs(str(Path(onix_out).parent), exist_ok=True)
+        Path(onix_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(report).parent.mkdir(parents=True, exist_ok=True)
 
         export_onix_from_excel(
             excel_path=str(excel_path),
