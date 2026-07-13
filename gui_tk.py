@@ -15,6 +15,11 @@ import pandas as pd
 from ftplib import FTP, FTP_TLS, error_perm
 from cidre.routes import book_public_path
 from cidre.utils import as_str
+from cidre.orchestrator import (
+    AssetSourceError,
+    ignored_reserved_asset_json,
+    validate_assets_source,
+)
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
 from build_site import (
@@ -24,6 +29,35 @@ from build_site import (
     write_validation_csv,
 )
 from export_onix_py import export_onix_from_excel
+
+DEFAULT_ASSETS_VALUE = ""
+
+ASSETS_HELP_TEXT = """Ce dossier est facultatif.
+
+Son contenu sera copié dans le dossier « assets » du site.
+
+Placez directement à sa racine les logos et les sous-dossiers utiles, par exemple :
+
+logo_purh.jpg
+logo_univ.png
+docs/
+images/
+actu/
+social/
+
+Ne placez pas ces fichiers dans un second dossier nommé « assets » :
+le dossier sélectionné représente déjà le contenu futur de « assets ».
+
+Les couvertures de livres restent dans le dossier des couvertures, sélectionné séparément.
+
+Les fichiers catalogue.json et actualites.json sont générés automatiquement par CIDRE à la racine du site et ne doivent pas être placés dans ce dossier."""
+
+
+def resolve_assets_dir_for_gui(assets_value: str, out_dir: Path) -> Path | None:
+    assets_value = as_str(assets_value).strip()
+    if not assets_value:
+        return None
+    return validate_assets_source(Path(assets_value).expanduser(), out_dir)
 
 
 def should_continue_after_validation(report, confirm_alerts) -> bool:
@@ -144,6 +178,7 @@ class App(tk.Tk):
         self.var_excel = tk.StringVar(value="")
         self.var_out = tk.StringVar(value="")
         self.var_covers = tk.StringVar(value="")
+        self.var_assets = tk.StringVar(value=DEFAULT_ASSETS_VALUE)
         self.var_validate_only = tk.BooleanVar(value=False)
         self.var_export_onix = tk.BooleanVar(value=False)
 
@@ -225,6 +260,20 @@ class App(tk.Tk):
         tk.Label(row, text="Dossier des couvertures (optionnel) :", width=30, anchor="w").pack(side="left")
         tk.Entry(row, textvariable=self.var_covers).pack(side="left", fill="x", expand=True, padx=8)
         tk.Button(row, text="Choisir…", command=self.pick_covers).pack(side="left")
+
+        # Assets
+        row = tk.Frame(frm)
+        row.pack(fill="x", **pad)
+        tk.Label(row, text="Dossier source des assets (optionnel) :", width=30, anchor="w").pack(side="left")
+        tk.Entry(row, textvariable=self.var_assets).pack(side="left", fill="x", expand=True, padx=8)
+        tk.Button(row, text="Choisir…", command=self.pick_assets).pack(side="left")
+        tk.Button(
+            row,
+            text="?",
+            width=3,
+            command=self.show_assets_help,
+            takefocus=True,
+        ).pack(side="left", padx=(6, 0))
 
         # Options
         # Options (sur 2 lignes pour éviter le débordement)
@@ -505,6 +554,14 @@ class App(tk.Tk):
         if path:
             self.var_covers.set(path)
 
+    def pick_assets(self):
+        path = filedialog.askdirectory(title="Choisir le dossier source des assets")
+        if path:
+            self.var_assets.set(path)
+
+    def show_assets_help(self):
+        messagebox.showinfo("Structure du dossier des assets", ASSETS_HELP_TEXT)
+
     def open_out_folder(self):
         out_dir = self._selected_out_dir()
         if out_dir is None:
@@ -622,6 +679,11 @@ class App(tk.Tk):
             return
         out_dir = Path(out_value).expanduser().resolve()
         covers = Path(self.var_covers.get()).expanduser() if self.var_covers.get().strip() else None
+        try:
+            assets_dir = resolve_assets_dir_for_gui(self.var_assets.get(), out_dir)
+        except AssetSourceError as e:
+            messagebox.showerror("Dossier des assets invalide", f"{e}")
+            return
         validate_only = bool(self.var_validate_only.get())
 
         if not excel.exists():
@@ -719,6 +781,12 @@ class App(tk.Tk):
         self.log(f"Lancement : {excel}")
         self.log(f"Sortie   : {out_dir}")
         self.log(f"Covers   : {covers if covers else '(aucun)'}")
+        self.log(f"Assets   : {assets_dir if assets_dir else '(aucun)'}")
+        for ignored in ignored_reserved_asset_json(assets_dir):
+            self.log(
+                f"⚠️ Asset ignoré : {ignored} "
+                "(catalogue.json et actualites.json sont générés à la racine du site)."
+            )
         self.log(f"Mode     : {'validation seulement' if validate_only else 'génération complète'}")
         self.log(f"FTP      : {'oui' if do_publish_ftp else 'non'}")
         self.log(f"ONIX     : {'oui' if export_onix else 'non'}")
@@ -733,6 +801,7 @@ class App(tk.Tk):
                     excel_path=excel,
                     out_dir=out_dir,
                     covers_dir=covers,
+                    assets_dir=assets_dir,
                     validate_only=validate_only,
                     new_months=new_months,
                     # code changé pour brancher la sortie onix d'abord

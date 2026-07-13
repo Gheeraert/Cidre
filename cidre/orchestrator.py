@@ -39,12 +39,21 @@ from .validation import (
 # Orchestrator
 # -------------------------
 
+RESERVED_ASSET_ROOT_JSON = {"catalogue.json", "actualites.json"}
+
+
+class AssetSourceError(ValueError):
+    """Configuration invalide du dossier source des assets."""
+
+
 def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
                validate_only: bool = False, new_months: Optional[int] = None,
                progress_cb=None,
                publish: bool = False,
-               force_alerts: bool = True):
+               force_alerts: bool = True,
+               assets_dir: Optional[Path] = None):
     wb = pd.ExcelFile(excel_path)
+    assets_dir = validate_assets_source(assets_dir, out_dir) if assets_dir else None
 
     cfg = load_config(wb, "CONFIG")
     if new_months is not None:
@@ -99,6 +108,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
             contacts=contacts,
             actualites=actualites,
             covers_dir=covers_dir,
+            assets_dir=assets_dir,
             report=report,
         )
         tx.commit()
@@ -113,10 +123,14 @@ def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataF
                         pages: pd.DataFrame, collections: pd.DataFrame,
                         revues: pd.DataFrame, contacts: pd.DataFrame,
                         actualites: pd.DataFrame, covers_dir: Optional[Path],
+                        assets_dir: Optional[Path],
                         report) -> None:
     out_dir = target_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     clean_generated_output(out_dir)
+
+    if assets_dir:
+        copy_assets_tree(assets_dir, out_dir)
 
     # covers (copie d'abord pour savoir ce qui existe vraiment)
     if covers_dir:
@@ -214,6 +228,70 @@ def clean_generated_output(target_dir: Path) -> None:
     remove_legacy_asset_json(target_dir)
 
 
+def _resolve_path(path: Path) -> Path:
+    return Path(path).expanduser().resolve(strict=False)
+
+
+def _is_relative_to(child: Path, parent: Path) -> bool:
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_assets_source(assets_dir: Optional[Path], out_dir: Path) -> Optional[Path]:
+    if not assets_dir:
+        return None
+
+    src = _resolve_path(assets_dir)
+    dst = _resolve_path(out_dir)
+    if not src.exists():
+        raise AssetSourceError(f"Dossier des assets introuvable : {src}")
+    if not src.is_dir():
+        raise AssetSourceError(f"Le chemin des assets n'est pas un dossier : {src}")
+    try:
+        next(src.iterdir(), None)
+    except PermissionError as exc:
+        raise AssetSourceError(f"Dossier des assets illisible : {src}") from exc
+
+    if src == dst:
+        raise AssetSourceError("Le dossier source des assets ne peut pas être le dossier de sortie.")
+    if src == dst / "assets":
+        raise AssetSourceError("Le dossier source des assets ne peut pas être le dossier assets/ de sortie.")
+    if _is_relative_to(src, dst):
+        raise AssetSourceError("Le dossier source des assets ne peut pas être situé dans le dossier de sortie.")
+    if _is_relative_to(dst, src):
+        raise AssetSourceError("Le dossier de sortie ne peut pas être situé dans le dossier source des assets.")
+    return src
+
+
+def ignored_reserved_asset_json(assets_dir: Optional[Path]) -> list[Path]:
+    if not assets_dir:
+        return []
+    src = _resolve_path(assets_dir)
+    return [src / name for name in sorted(RESERVED_ASSET_ROOT_JSON) if (src / name).is_file()]
+
+
+def copy_assets_tree(assets_dir: Path, out_dir: Path) -> None:
+    src_root = _resolve_path(assets_dir)
+    dest_root = out_dir / "assets"
+    dest_root.mkdir(parents=True, exist_ok=True)
+
+    for src in src_root.rglob("*"):
+        rel = src.relative_to(src_root)
+        if rel.parts and rel.parts[0] == "assets":
+            continue
+        if len(rel.parts) == 1 and rel.name in RESERVED_ASSET_ROOT_JSON:
+            continue
+        dest = dest_root / rel
+        if src.is_dir():
+            dest.mkdir(parents=True, exist_ok=True)
+        elif src.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+
 def make_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
 
@@ -229,6 +307,7 @@ def make_arg_parser() -> argparse.ArgumentParser:
                     help="Chemin du classeur Excel (--tableur est un ancien alias accepté)")
     ap.add_argument("--out", required=True, help="Dossier de sortie")
     ap.add_argument("--covers-dir", default="", help="Dossier contenant les couvertures (images)")
+    ap.add_argument("--assets-dir", default="", help="Dossier source des assets à copier dans assets/")
     ap.add_argument("--validate-only", action="store_true", help="Ne génère que validation.csv + catalogue.json")
     ap.add_argument("--force", action="store_true",
                     help="Continuer la génération malgré les alertes de validation contournables")
@@ -251,13 +330,22 @@ def main():
     out_dir = Path(args.out).expanduser().resolve()
 
     covers_dir = Path(args.covers_dir).expanduser().resolve() if args.covers_dir else None
+    assets_dir = Path(args.assets_dir).expanduser().resolve() if args.assets_dir else None
 
     # 1) build du site (sans publish ici)
     try:
+        if assets_dir:
+            for ignored in ignored_reserved_asset_json(assets_dir):
+                print(
+                    f"Avertissement : {ignored} est ignoré ; "
+                    "catalogue.json et actualites.json sont générés à la racine du site.",
+                    file=sys.stderr,
+                )
         validation_report = build_site(
             excel_path=excel_path,
             out_dir=out_dir,
             covers_dir=covers_dir,
+            assets_dir=assets_dir,
             validate_only=args.validate_only,
             new_months=args.new_months,
             publish=False,  # IMPORTANT
@@ -275,6 +363,9 @@ def main():
         print(f"Rapport écrit : {out_dir / 'validation.csv'}", file=sys.stderr)
         print("Relancez avec --force pour générer malgré ces alertes.", file=sys.stderr)
         sys.exit(4)
+    except AssetSourceError as exc:
+        print(f"Dossier des assets invalide : {exc}", file=sys.stderr)
+        sys.exit(3)
 
     # 2) export ONIX (ICI)
     if args.export_onix:

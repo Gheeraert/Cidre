@@ -92,7 +92,7 @@ pip install -r requirements.txt
 4) Lancez la génération. Soit vous utiliser l'interface graphique gui_tk.py, soit ainsi:
 
 ```powershell
-.venv\Scripts\python.exe build_site.py --excel chemin\vers\classeur.xlsx --out site-sortie --covers-dir covers
+.venv\Scripts\python.exe build_site.py --excel chemin\vers\classeur.xlsx --out site-sortie --covers-dir covers --assets-dir assets-source
 ```
 
 4) Ouvrez `site-sortie/index.html` dans un navigateur, ou servez en local :
@@ -237,6 +237,32 @@ dossier-du-classeur/
 
 Les anciens emplacements restent acceptés en repli : fichiers posés à la racine
 du dossier du classeur, ou dans `actu/`, `social/`, `images/`.
+
+## Dossier source des assets
+
+Le dossier source des assets est optionnel. Il peut être sélectionné dans la GUI
+ou fourni en CLI avec `--assets-dir`.
+
+Son contenu est copié dans `<dossier-de-sortie>/assets/`, sans copier le nom du
+dossier source lui-même. Placez directement à sa racine les logos et les
+sous-dossiers utiles :
+
+```text
+assets-source/
+├── logo_purh.jpg
+├── logo_univ.png
+├── docs/
+├── images/
+├── actu/
+└── social/
+```
+
+La copie est une fusion non destructive : les fichiers déjà présents dans
+`assets/` sont conservés s'ils sont absents de la source, et remplacés si la
+source fournit le même chemin relatif. Les couvertures de livres restent
+séparées dans le dossier des couvertures. `catalogue.json` et `actualites.json`
+sont générés automatiquement à la racine du site ; ne les placez pas dans ce
+dossier source.
 
 ## Sorties générées
 

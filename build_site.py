@@ -14,7 +14,7 @@ Générateur statique : Excel -> site HTML (sans backend)
 - Recherche + filtres (collection / format / année) côté navigateur, via catalogue.json
 
 Usage:
-  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out site-sortie --covers-dir covers
+  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out site-sortie --covers-dir covers --assets-dir assets-source
   python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out site-sortie --publish-ftp
   (--tableur est accepté comme ancien alias de --excel)
 
@@ -145,9 +145,13 @@ from cidre.ftp_publish import (  # noqa: F401
     publish_ftp,
 )
 from cidre.orchestrator import (  # noqa: F401
+    AssetSourceError,
     build_site,
+    copy_assets_tree,
+    ignored_reserved_asset_json,
     make_arg_parser,
     main,
+    validate_assets_source,
 )
 
 

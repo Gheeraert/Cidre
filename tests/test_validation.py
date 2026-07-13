@@ -13,10 +13,15 @@ import cidre.orchestrator as orchestrator
 from cidre.data_models import load_config
 from cidre.excel_data import detect_books_sheet, load_books
 from gui_tk import (
+    ASSETS_HELP_TEXT,
+    App,
+    DEFAULT_ASSETS_VALUE,
     find_book_url_collisions,
     format_blocking_validation_message,
+    resolve_assets_dir_for_gui,
     should_continue_after_validation,
 )
+import gui_tk
 
 
 def _book(**over):
@@ -203,6 +208,66 @@ def test_cli_autorise_alerte_avec_force(tmp_path, monkeypatch):
     bs.main()
     assert (out / "index.html").exists()
     assert "BOOK_TITLE_MISSING" in (out / "validation.csv").read_text(encoding="utf-8")
+
+
+def test_cli_assets_dir_absent_autorise_generation(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "ok.xlsx")
+    out = tmp_path / "site-sortie"
+    monkeypatch.setattr(sys, "argv", ["build_site.py", "--excel", str(wb), "--out", str(out)])
+    bs.main()
+    assert (out / "index.html").exists()
+
+
+def test_cli_assets_dir_valide_copie_recursivement(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "ok.xlsx")
+    out = tmp_path / "site-sortie"
+    assets = tmp_path / "assets-source"
+    (assets / "docs").mkdir(parents=True)
+    (assets / "docs" / "consignes.pdf").write_text("pdf", encoding="utf-8")
+    (assets / "logo.png").write_text("logo", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "build_site.py", "--excel", str(wb), "--out", str(out), "--assets-dir", str(assets)
+    ])
+    bs.main()
+    assert (out / "assets" / "docs" / "consignes.pdf").read_text(encoding="utf-8") == "pdf"
+    assert (out / "assets" / "logo.png").read_text(encoding="utf-8") == "logo"
+
+
+def test_cli_assets_dir_inexistant_ou_fichier_refuse(tmp_path, monkeypatch, capsys):
+    wb = _workbook(tmp_path / "ok.xlsx")
+    out = tmp_path / "site-sortie"
+    for assets in [tmp_path / "absent", tmp_path / "source.txt"]:
+        if assets.suffix:
+            assets.write_text("pas un dossier", encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", [
+            "build_site.py", "--excel", str(wb), "--out", str(out), "--assets-dir", str(assets)
+        ])
+        with pytest.raises(SystemExit) as exc:
+            bs.main()
+        assert exc.value.code == 3
+        assert "Dossier des assets invalide" in capsys.readouterr().err
+        assert not (out / "index.html").exists()
+
+
+def test_cli_assets_dir_imbrique_refuse(tmp_path, monkeypatch, capsys):
+    wb = _workbook(tmp_path / "ok.xlsx")
+    out = tmp_path / "site-sortie"
+    cases = [
+        out,
+        out / "assets",
+        out / "sous-dossier",
+        tmp_path,
+    ]
+    for assets in cases:
+        assets.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(sys, "argv", [
+            "build_site.py", "--excel", str(wb), "--out", str(out), "--assets-dir", str(assets)
+        ])
+        with pytest.raises(SystemExit) as exc:
+            bs.main()
+        assert exc.value.code == 3
+        assert "Dossier des assets invalide" in capsys.readouterr().err
+        assert not (out / "index.html").exists()
 
 
 def test_blocage_technique_empeche_ecriture_ancien_out(tmp_path):
@@ -493,6 +558,109 @@ def test_decision_gui_pure():
         bs.ValidationIssue("blocking", "X", "site", "id", "field", "msg")
     ])
     assert should_continue_after_validation(blocking, lambda r: True) is False
+
+
+def test_gui_assets_champ_vide_par_defaut_et_aide():
+    assert DEFAULT_ASSETS_VALUE == ""
+    for expected in ["docs/", "images/", "actu/", "social/", "second dossier nommé « assets »", "couvertures", "catalogue.json", "actualites.json"]:
+        assert expected in ASSETS_HELP_TEXT
+
+
+def test_gui_assets_resolve_facultatif_valide_et_invalide(tmp_path):
+    out = tmp_path / "site-sortie"
+    assets = tmp_path / "assets-source"
+    assets.mkdir()
+    assert resolve_assets_dir_for_gui("", out) is None
+    assert resolve_assets_dir_for_gui(str(assets), out) == assets.resolve()
+    with pytest.raises(bs.AssetSourceError):
+        resolve_assets_dir_for_gui(str(tmp_path / "absent"), out)
+
+
+class _FakeVar:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+class _FakeButton:
+    def config(self, **kwargs):
+        pass
+
+
+class _ImmediateThread:
+    def __init__(self, target, daemon=None):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+
+def test_gui_run_build_transmet_assets_dir(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    assets = tmp_path / "assets-source"
+    assets.mkdir()
+    captured = {}
+
+    app = object.__new__(App)
+    app.var_excel = _FakeVar(str(wb))
+    app.var_out = _FakeVar(str(out))
+    app.var_covers = _FakeVar("")
+    app.var_assets = _FakeVar(str(assets))
+    app.var_validate_only = _FakeVar(False)
+    app.var_publish_ftp = _FakeVar(False)
+    app.var_export_onix = _FakeVar(False)
+    app.var_start_server = _FakeVar(False)
+    app.var_port = _FakeVar(8000)
+    app.btn_run = _FakeButton()
+    app._preview_server = None
+    app.log = lambda msg: None
+    app.after = lambda delay, func=None: func() if func else None
+    app.stop_server = lambda: None
+
+    def fake_build_site(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(gui_tk, "build_site", fake_build_site)
+    monkeypatch.setattr(gui_tk.threading, "Thread", _ImmediateThread)
+
+    app.run_build()
+
+    assert captured["assets_dir"] == assets.resolve()
+    assert captured["out_dir"] == out.resolve()
+
+
+def test_gui_run_build_assets_invalide_arrete_generation(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    errors = []
+    called = []
+
+    app = object.__new__(App)
+    app.var_excel = _FakeVar(str(wb))
+    app.var_out = _FakeVar(str(out))
+    app.var_covers = _FakeVar("")
+    app.var_assets = _FakeVar(str(tmp_path / "absent"))
+    app.var_validate_only = _FakeVar(False)
+    app.var_publish_ftp = _FakeVar(False)
+    app.var_export_onix = _FakeVar(False)
+    app.var_start_server = _FakeVar(False)
+    app.var_port = _FakeVar(8000)
+
+    monkeypatch.setattr(gui_tk.messagebox, "showerror", lambda title, message: errors.append((title, message)))
+    monkeypatch.setattr(gui_tk, "build_site", lambda **kwargs: called.append(kwargs))
+
+    app.run_build()
+
+    assert errors
+    assert errors[0][0] == "Dossier des assets invalide"
+    assert called == []
 
 
 def _blocking_report(*issues):

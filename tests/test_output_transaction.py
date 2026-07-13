@@ -177,6 +177,143 @@ def test_dossier_sortie_nom_arbitraire(tmp_path):
     assert _leftovers(out) == []
 
 
+def _prepare_assets_source(root: Path, files: dict[str, bytes | str]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    for rel, content in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            p.write_bytes(content)
+        else:
+            p.write_text(content, encoding="utf-8")
+    return root
+
+
+def test_premiere_generation_copie_assets_source_recursivement(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    assets = _prepare_assets_source(tmp_path / "assets-source", {
+        "logo.png": b"logo",
+        "docs/consignes.pdf": b"pdf",
+        "social/mastodon.svg": "<svg/>",
+    })
+    out = tmp_path / "site-sortie"
+
+    bs.build_site(wb, out, covers_dir=None, assets_dir=assets)
+
+    assert (out / "assets" / "logo.png").read_bytes() == b"logo"
+    assert (out / "assets" / "docs" / "consignes.pdf").read_bytes() == b"pdf"
+    assert (out / "assets" / "social" / "mastodon.svg").read_text(encoding="utf-8") == "<svg/>"
+    assert (out / "catalogue.json").exists()
+    assert (out / "actualites.json").exists()
+    assert not (out / "assets" / "assets-source").exists()
+
+
+def test_regeneration_fusionne_assets_source_sans_miroir_destructif(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    _prepare_assets_source(out / "assets", {
+        "ancien.txt": "ancien",
+        "logo.png": "ancienne version",
+        "docs/document-conserve.pdf": "conserve",
+    })
+    assets = _prepare_assets_source(tmp_path / "assets-source", {
+        "logo.png": "nouvelle version",
+        "docs/nouveau.pdf": "nouveau",
+    })
+
+    bs.build_site(wb, out, covers_dir=None, assets_dir=assets)
+
+    assert (out / "assets" / "ancien.txt").read_text(encoding="utf-8") == "ancien"
+    assert (out / "assets" / "docs" / "document-conserve.pdf").read_text(encoding="utf-8") == "conserve"
+    assert (out / "assets" / "docs" / "nouveau.pdf").read_text(encoding="utf-8") == "nouveau"
+    assert (out / "assets" / "logo.png").read_text(encoding="utf-8") == "nouvelle version"
+
+
+def test_regeneration_sans_assets_source_conserve_assets_existants_sauf_json_reserves(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    _prepare_assets_source(out / "assets", {
+        "ancien.txt": "ancien",
+        "docs/document.pdf": "document",
+        "catalogue.json": "{}",
+        "actualites.json": "[]",
+    })
+
+    bs.build_site(wb, out, covers_dir=None, assets_dir=None)
+
+    assert (out / "assets" / "ancien.txt").read_text(encoding="utf-8") == "ancien"
+    assert (out / "assets" / "docs" / "document.pdf").read_text(encoding="utf-8") == "document"
+    assert not (out / "assets" / "catalogue.json").exists()
+    assert not (out / "assets" / "actualites.json").exists()
+
+
+def test_assets_json_reserves_racine_ignores_et_assets_imbriques_non_copies(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    assets = _prepare_assets_source(tmp_path / "assets-source", {
+        "catalogue.json": "mauvais",
+        "actualites.json": "mauvais",
+        "docs/catalogue.json": "autorise",
+        "assets/logo.png": "ne doit pas devenir assets/assets/logo.png",
+    })
+    out = tmp_path / "site-sortie"
+
+    bs.build_site(wb, out, covers_dir=None, assets_dir=assets)
+
+    assert not (out / "assets" / "catalogue.json").exists()
+    assert not (out / "assets" / "actualites.json").exists()
+    assert (out / "assets" / "docs" / "catalogue.json").read_text(encoding="utf-8") == "autorise"
+    assert not (out / "assets" / "assets").exists()
+
+
+def test_validate_only_ne_copie_pas_assets_source(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    assets = _prepare_assets_source(tmp_path / "assets-source", {"logo.png": "logo"})
+    out = tmp_path / "sortie"
+
+    bs.build_site(wb, out, covers_dir=None, assets_dir=assets, validate_only=True)
+
+    assert (out / "catalogue.json").exists()
+    assert not (out / "assets" / "logo.png").exists()
+
+
+def test_echec_apres_copie_assets_garde_sortie_reelle_intacte(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    before = _prepare_old_dist(out)
+    assets = _prepare_assets_source(tmp_path / "assets-source", {"logo.png": "nouveau"})
+
+    def fail_catalogue_json(*args, **kwargs):
+        raise RuntimeError("boom-apres-assets")
+
+    monkeypatch.setattr(orchestrator, "build_catalogue_json", fail_catalogue_json)
+
+    with pytest.raises(RuntimeError, match="boom-apres-assets"):
+        bs.build_site(wb, out, covers_dir=None, assets_dir=assets)
+
+    assert _snapshot(out) == before
+    assert _leftovers(out) == []
+
+
+def test_chemins_assets_imbriques_refuses_avant_modification(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    _prepare_old_dist(out)
+    (out / "sous-dossier").mkdir()
+    cases = [
+        out,
+        out / "assets",
+        out / "sous-dossier",
+        tmp_path,
+    ]
+    before = _snapshot(out)
+
+    for assets in cases:
+        with pytest.raises(bs.AssetSourceError):
+            bs.build_site(wb, out, covers_dir=None, assets_dir=assets)
+        assert _snapshot(out) == before
+        assert _leftovers(out) == []
+
+
 def test_assets_ou_covers_non_repertoire_bloquent_sans_modifier_sortie(tmp_path):
     wb = _workbook(tmp_path / "site.xlsx")
     for name in ("assets", "covers"):
