@@ -59,8 +59,10 @@ def _format_book_collision_item(idx, row) -> str:
     line_no = idx + 2
     title = as_str(row.get("titre_norm") or row.get("Titre")) or "(titre absent)"
     id13 = as_str(row.get("id13"))
-    source_slug = as_str(row.get("_source_slug"))
-    slug_label = source_slug if source_slug else "(vide - URL calculee automatiquement)"
+    source_slug = as_str(row.get("_source_slug_raw"))
+    if not source_slug:
+        source_slug = as_str(row.get("_source_slug"))
+    slug_label = source_slug if source_slug else "(vide — URL calculée automatiquement)"
     isbn_part = f" - ISBN {id13}" if id13 else ""
     return f"- ligne {line_no} - {title}{isbn_part}\n  slug Excel : {slug_label}"
 
@@ -80,15 +82,16 @@ def format_blocking_validation_message(report, books):
     collisions = find_book_url_collisions(books)
     if collisions:
         title = "URLs de livres en conflit"
-        plural = (
-            "Plusieurs ouvrages actifs produisent la meme URL"
-            if len(collisions) > 1
-            else "Deux ouvrages actifs produisent la meme URL"
-        )
+        if len(collisions) > 1:
+            intro = "Plusieurs ouvrages actifs produisent des URL identiques"
+        elif len(collisions[0]["items"]) == 2:
+            intro = "Deux ouvrages actifs produisent la même URL"
+        else:
+            intro = "Plusieurs ouvrages actifs produisent la même URL"
         message = [
-            "La generation est arretee avant toute modification du site.",
+            "La génération est arrêtée avant toute modification du site.",
             "",
-            f"{plural} :",
+            f"{intro} :",
             "",
             _format_book_collisions(collisions, limit=5),
         ]
@@ -99,10 +102,10 @@ def format_blocking_validation_message(report, books):
         message.extend([
             "",
             "Dans le fichier Excel, modifiez la cellule de la colonne « slug »",
-            "de l'un des ouvrages afin de lui donner une valeur differente,",
+            "de l'un des ouvrages afin de lui donner une valeur différente,",
             "par exemple « meme-slug-2 ».",
             "",
-            "Enregistrez le classeur, puis relancez la generation.",
+            "Enregistrez le classeur, puis relancez la génération.",
         ])
 
         other_blocking = [
@@ -110,21 +113,21 @@ def format_blocking_validation_message(report, books):
             if not (issue.code == "DUPLICATE_OUTPUT_TARGET" and issue.entity == "book")
         ]
         if other_blocking:
-            message.extend(["", "Autres problemes bloquants :"])
+            message.extend(["", "Autres problèmes bloquants :"])
             message.extend(f"- {i.code} : {i.message}" for i in other_blocking)
 
-        log_message = "Collisions d'URL de livres detectees:\n\n" + _format_book_collisions(collisions)
+        log_message = "Collisions d'URL de livres détectées:\n\n" + _format_book_collisions(collisions)
         if other_blocking:
-            log_message += "\n\nAutres problemes bloquants:\n" + "\n".join(
+            log_message += "\n\nAutres problèmes bloquants:\n" + "\n".join(
                 f"- {i.code} : {i.message}" for i in other_blocking
             )
         return title, "\n".join(message), log_message
 
     title = "Blocage de validation"
-    message = "La generation est interrompue avant toute modification du dossier de sortie.\n\n"
+    message = "La génération est interrompue avant toute modification du dossier de sortie.\n\n"
     message += "\n".join(f"- {i.code} : {i.message}" for i in report.blocking_issues[:8])
     if len(report.blocking_issues) > 8:
-        message += f"\n- ... {len(report.blocking_issues) - 8} autre(s) probleme(s)"
+        message += f"\n- ... {len(report.blocking_issues) - 8} autre(s) problème(s)"
     return title, message, message
 
 

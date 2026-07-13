@@ -660,6 +660,7 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["pub_date"] = df["date_parution_norm"].apply(parse_pub_date)
 
     # Build slugs
+    df["_source_slug_raw"] = df["slug"].apply(as_str)
     df["_source_slug"] = df["slug"].apply(explicit_book_slug)
     out_slugs: List[str] = []
     origins: List[str] = []

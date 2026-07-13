@@ -507,12 +507,14 @@ def test_gui_message_collision_livres_explicite_simple():
         {
             "titre_norm": "Premier ouvrage",
             "id13": "9782877750001",
+            "_source_slug_raw": "meme-slug",
             "_source_slug": "meme-slug",
             "slug": "meme-slug",
         },
         {
             "titre_norm": "Second ouvrage",
             "id13": "9791024000008",
+            "_source_slug_raw": "meme-slug",
             "_source_slug": "meme-slug",
             "slug": "meme-slug",
         },
@@ -528,33 +530,65 @@ def test_gui_message_collision_livres_explicite_simple():
     assert "Second ouvrage" in message
     assert "ISBN 9782877750001" in message
     assert "ISBN 9791024000008" in message
-    assert "colonne « slug »" in message
+    assert "colonne \u00ab slug \u00bb" in message
     assert "modifiez" in message
     assert "n'est pas" not in message
     assert "livres/meme-slug.html" in log_message
+    assert "g\u00e9n\u00e9ration est arr\u00eat\u00e9e" in message
+    assert "valeur diff\u00e9rente" in message
+    assert "Collisions d'URL de livres d\u00e9tect\u00e9es" in log_message
 
 
 def test_gui_message_collision_livres_slugs_calcules():
     books = pd.DataFrame([
-        {"titre_norm": "Premier", "id13": "", "_source_slug": "", "slug": "meme-slug"},
-        {"titre_norm": "Second", "id13": "", "_source_slug": "", "slug": "meme-slug"},
+        {"titre_norm": "Premier", "id13": "", "_source_slug_raw": "", "_source_slug": "", "slug": "meme-slug"},
+        {"titre_norm": "Second", "id13": "", "_source_slug_raw": "", "_source_slug": "", "slug": "meme-slug"},
     ], index=[0, 1])
     _, message, _ = format_blocking_validation_message(_blocking_report(_blocking_issue()), books)
-    assert "slug Excel : (vide - URL calculee automatiquement)" in message
+    assert "slug Excel : (vide \u2014 URL calcul\u00e9e automatiquement)" in message
 
 
-def test_gui_message_collision_livres_sources_normalisees_distinctes():
-    books = pd.DataFrame([
-        {"titre_norm": "Premier", "id13": "", "_source_slug": "Mon Livre", "slug": "mon-livre"},
-        {"titre_norm": "Second", "id13": "", "_source_slug": "mon-livre", "slug": "mon-livre"},
-    ])
+def test_gui_message_collision_livres_sources_brutes_depuis_load_books(tmp_path):
+    wb = _workbook(
+        tmp_path / "raw-slugs.xlsx",
+        book_rows=[
+            {"slug": "Mon Livre", "id13": "9782877750001", "titre_norm": "Premier"},
+            {"slug": "mon-livre", "id13": "9782877750002", "titre_norm": "Second"},
+        ],
+    )
+    books = _loaded_books(wb)
+    assert books["_source_slug_raw"].tolist() == ["Mon Livre", "mon-livre"]
+    assert books["_source_slug"].tolist() == ["mon-livre", "mon-livre"]
+    assert books["slug"].tolist() == ["mon-livre", "mon-livre"]
+
     collisions = find_book_url_collisions(books)
     assert len(collisions) == 1
     _, message, _ = format_blocking_validation_message(_blocking_report(_blocking_issue()), books)
     assert message.count("livres/mon-livre.html") == 1
     assert "slug Excel : Mon Livre" in message
     assert "slug Excel : mon-livre" in message
-    assert "colonne « slug »" in message
+    assert "colonne \u00ab slug \u00bb" in message
+
+
+def test_gui_message_collision_livres_fallback_ancien_dataframe_sans_slug_raw():
+    books = pd.DataFrame([
+        {"titre_norm": "Premier", "id13": "", "_source_slug": "Mon Livre", "slug": "mon-livre"},
+        {"titre_norm": "Second", "id13": "", "_source_slug": "mon-livre", "slug": "mon-livre"},
+    ])
+    _, message, _ = format_blocking_validation_message(_blocking_report(_blocking_issue()), books)
+    assert "slug Excel : Mon Livre" in message
+    assert "slug Excel : mon-livre" in message
+
+
+def test_gui_message_collision_livres_trois_ouvrages():
+    books = pd.DataFrame([
+        {"titre_norm": "Premier", "id13": "", "_source_slug_raw": "meme-slug", "slug": "meme-slug"},
+        {"titre_norm": "Deuxieme", "id13": "", "_source_slug_raw": "meme-slug", "slug": "meme-slug"},
+        {"titre_norm": "Troisieme", "id13": "", "_source_slug_raw": "meme-slug", "slug": "meme-slug"},
+    ])
+    _, message, _ = format_blocking_validation_message(_blocking_report(_blocking_issue()), books)
+    assert "Deux ouvrages actifs" not in message
+    assert "Plusieurs ouvrages actifs produisent la m\u00eame URL" in message
 
 
 def test_gui_message_collision_livres_limite_dialogue_et_detail_journal():
@@ -570,6 +604,7 @@ def test_gui_message_collision_livres_limite_dialogue_et_detail_journal():
     )
     assert title == "URLs de livres en conflit"
     assert message.count("livres/slug-") == 5
+    assert "Plusieurs ouvrages actifs produisent des URL identiques" in message
     assert "... et 1 autre(s) URL en conflit." in message
     assert log_message.count("livres/slug-") == 6
 
@@ -596,7 +631,7 @@ def test_gui_message_collision_livres_et_autre_blocage():
     title, message, _ = format_blocking_validation_message(report, books)
     assert title == "URLs de livres en conflit"
     assert "livres/meme-slug.html" in message
-    assert "Autres problemes bloquants" in message
+    assert "Autres probl\u00e8mes bloquants" in message
     assert "OUTPUT_PATH_NOT_DIRECTORY" in message
 
 
