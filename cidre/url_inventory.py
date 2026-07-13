@@ -90,14 +90,14 @@ def _excel_row(index: Any) -> str:
 
 
 def _load_site_frames(excel_path: Path):
-    wb = pd.ExcelFile(excel_path)
-    cfg = load_config(wb, "CONFIG")
-    books_sheet = detect_books_sheet(wb, cfg.books_sheet)
-    books = load_books(wb, books_sheet)
-    pages = load_pages(wb, cfg.pages_sheet)
-    collections = load_collections(wb, cfg.collections_sheet)
-    revues = load_revues(wb, cfg.revues_sheet)
-    actualites = load_actualites(wb)
+    with pd.ExcelFile(excel_path) as wb:
+        cfg = load_config(wb, "CONFIG")
+        books_sheet = detect_books_sheet(wb, cfg.books_sheet)
+        books = load_books(wb, books_sheet)
+        pages = load_pages(wb, cfg.pages_sheet)
+        collections = load_collections(wb, cfg.collections_sheet)
+        revues = load_revues(wb, cfg.revues_sheet)
+        actualites = load_actualites(wb)
     return books, pages, collections, revues, actualites
 
 

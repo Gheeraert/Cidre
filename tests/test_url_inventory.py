@@ -93,9 +93,9 @@ def _workbook(path: Path, pages_rows=None, revues_rows=None, actualites_rows=Non
 
 
 def _books(path: Path):
-    wb = pd.ExcelFile(path)
-    cfg = load_config(wb, "CONFIG")
-    return load_books(wb, detect_books_sheet(wb, cfg.books_sheet))
+    with pd.ExcelFile(path) as wb:
+        cfg = load_config(wb, "CONFIG")
+        return load_books(wb, detect_books_sheet(wb, cfg.books_sheet))
 
 
 def _inventory_rows(path: Path):
@@ -310,3 +310,32 @@ def test_inventaire_actualites_candidat_final_et_unicisation(tmp_path):
     assert fallback["slug_candidate"] == "actu"
     assert fallback["final_slug"] == "actu"
     assert fallback["auto_uniquified"] == "False"
+
+
+def test_inventaire_actualites_ponctuation_fallback_actu(tmp_path):
+    wb = _workbook(tmp_path / "actus-ponctuation.xlsx", actualites_rows=[
+        ["!!!", "", "2026-01-03", "Texte", 1, "", ""],
+        ["!!!", "", "2026-01-02", "Texte", 1, "", ""],
+        ["", "", "2026-01-01", "Texte sans titre", 1, "", ""],
+    ])
+    anchors = _rows_by(collect_url_inventory(wb), "actualite_anchor")
+    by_path = {r["public_path"]: r for r in anchors}
+
+    first = by_path["actualites.html#actu-actu"]
+    assert first["title"] == "!!!"
+    assert first["slug_origin"] == "fallback_title"
+    assert first["slug_candidate"] == "actu"
+    assert first["final_slug"] == "actu"
+    assert first["auto_uniquified"] == "False"
+
+    second = by_path["actualites.html#actu-actu-2"]
+    assert second["title"] == "!!!"
+    assert second["slug_origin"] == "fallback_title"
+    assert second["slug_candidate"] == "actu"
+    assert second["final_slug"] == "actu-2"
+    assert second["auto_uniquified"] == "True"
+
+    missing_title = by_path["actualites.html#actu-actu-3"]
+    assert missing_title["title"] == ""
+    assert missing_title["slug_origin"] == "fallback_actu"
+    assert missing_title["slug_candidate"] == "actu"

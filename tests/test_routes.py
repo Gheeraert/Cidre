@@ -50,3 +50,8 @@ def test_pages_publiees_et_exclusions():
     df = _published_pages(pages)
     assert df["_validation_slug"].tolist() == ["presentation"]
     assert routes.editorial_page_public_path("presentation") == "presentation.html"
+
+
+def test_actualite_anchor_candidate_fallback():
+    assert routes.actualite_anchor_candidate("!!!") == "actu"
+    assert routes.actualite_anchor_candidate("") == "actu"
