@@ -408,7 +408,7 @@ let limit = PAGE_SIZE;
 let timer = null;
 
 async function loadCatalogue() {
-  const res = await fetch("./assets/catalogue.json");
+  const res = await fetch("./catalogue.json");
   return await res.json();
 }
 function esc(s){return String(s||"")
@@ -576,7 +576,7 @@ NEWS_CAROUSEL_JS = r"""
 
   let data = [];
   try{
-    const res = await fetch("./assets/actualites.json");
+    const res = await fetch("./actualites.json");
     data = await res.json();
   }catch(e){ return; }
 

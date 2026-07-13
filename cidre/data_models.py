@@ -23,7 +23,7 @@ class SiteConfig:
     accent_color: str = "#005a9c"
     header_bg: str = "#2e2a22"
 
-    # Logos / favicon (fichiers copiés vers dist/assets)
+    # Logos / favicon (fichiers copiés vers assets/)
     logo_left: str = ""  # ex: assets/logo.png
     logo_right: str = ""  # ex: assets/partner.png
     logo_left_link: str = ""
@@ -37,7 +37,7 @@ class SiteConfig:
     footer_copyright: str = ""
     footer_conceptor: str = ""  # ex: "Conception : …"
     footer_legal: str = ""  # ex: "Mentions légales : …" ou URL
-    footer_logo: str = ""  # ex: assets/logo-univ.png (copié dans dist/assets)
+    footer_logo: str = ""  # ex: assets/logo-univ.png (copié dans assets/)
     footer_logo_alt: str = ""
     footer_logo_href: str = ""  # lien éventuel vers l’université
 

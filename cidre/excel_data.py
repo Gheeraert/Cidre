@@ -413,7 +413,7 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Option
                 id13_to_slug[i] = s
 
     if actualites is None or actualites.empty:
-        (out_dir / "assets" / "actualites.json").write_text("[]", encoding="utf-8")
+        (out_dir / "actualites.json").write_text("[]", encoding="utf-8")
         return
 
     def _excerpt(s: str, n: int = 200) -> str:
@@ -460,8 +460,7 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Option
             "link": ext_link,
         })
 
-    (out_dir / "assets").mkdir(parents=True, exist_ok=True)
-    (out_dir / "assets" / "actualites.json").write_text(
+    (out_dir / "actualites.json").write_text(
         json.dumps(recs, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8"
     )
@@ -557,7 +556,7 @@ def render_social_strip(cfg: SiteConfig, out_dir: Path) -> str:
 
 def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
     social_html = render_social_strip(cfg, out_dir)
-    p = out_dir / "assets" / "actualites.json"
+    p = out_dir / "actualites.json"
     if not p.exists():
         body = f"<h2>{e(cfg.menu_label_actualites)}</h2>{social_html}<p class='small'>Aucune actualité.</p>"
         write_file(out_dir / "actualites.html", page_shell(cfg, f"{cfg.site_title} — Actualités", "actualites", body, "."))

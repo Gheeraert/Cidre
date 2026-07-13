@@ -1,4 +1,4 @@
-# Tests de la structure des assets (sources à côté du classeur -> dist/assets/)
+# Tests de la structure des assets (sources à côté du classeur -> dossier de sortie/assets/)
 # Lancement : .venv\Scripts\python.exe -m pytest tests/ -v
 #
 # Convention source canonique, à côté du classeur :
@@ -160,10 +160,12 @@ def test_logo_ancien_emplacement_racine(excel_dir, tmp_path):
     assert (out / "assets" / "logo.png").is_file()
 
 
-def test_json_racine_dist_assets(tmp_path):
-    out = tmp_path / "dist"
+def test_json_racine_dossier_sortie(tmp_path):
+    out = tmp_path / "sortie"
     (out / "assets").mkdir(parents=True)
     bs.build_catalogue_json(pd.DataFrame(), out)
     bs.build_actualites_json(pd.DataFrame(), out)
-    assert (out / "assets" / "catalogue.json").is_file()
-    assert (out / "assets" / "actualites.json").is_file()
+    assert (out / "catalogue.json").is_file()
+    assert (out / "actualites.json").is_file()
+    assert not (out / "assets" / "catalogue.json").exists()
+    assert not (out / "assets" / "actualites.json").exists()

@@ -17,9 +17,9 @@ CIDRE est une chaîne d’éditorialisation où un tableur joue le rôle d’int
 
 À partir des DataFrames, CIDRE construit une représentation JSON qui devient la source unique de vérité pour la génération. Le catalogue en json permet ensuite d’avoir une navigation, des listes, et des “index” utiles au moteur de recherche (côté client, sans serveur). Autrement dit : CIDRE fabrique un modèle de données éditorial à partir du tableur.
 
-Une fois le modèle prêt, CIDRE génère un ensemble de fichiers dans un répertoire dist/. Les contenus textuels sont généralement traités (Markdown → HTML) puis injectés dans un gabarit.
+Une fois le modèle prêt, CIDRE génère un ensemble de fichiers dans le dossier de sortie choisi par l'utilisateur. Les contenus textuels sont généralement traités (Markdown → HTML) puis injectés dans un gabarit.
 
-CIDRE peut aussi publier le dossier dist/ par FTP (déploiement simple) et exporter des métadonnées (par ex. ONIX), selon la même logique: on repart du modèle normalisé pour produire un flux.
+CIDRE peut aussi publier le dossier de sortie par FTP (déploiement simple) et exporter des métadonnées (par ex. ONIX), selon la même logique: on repart du modèle normalisé pour produire un flux.
 
 Le dispositif reste léger, souverain, maintenable et sécurisé.
 
@@ -44,7 +44,7 @@ Téléchargement des exécutables et utilisation
   - `nouveautes.html`, `a-paraitre.html`  
   - `collections/…`, `revues/…`  
   - pages fixes (politique éditoriale, mentions légales, etc.)
-- Export d’un `assets/catalogue.json` en JSON consommé en front (recherche / filtres / tri sans backend)
+- Export d’un `catalogue.json` en JSON consommé en front (recherche / filtres / tri sans backend)
 - Gestion des couvertures (copie, fallback si manquante)
 - Option de publication (FTP) si activée dans le script / la config
 - Utilisation simple : chargement de l'Excel et génération automatique depuis une interface tkinter (boîte de dialogue)
@@ -92,13 +92,13 @@ pip install -r requirements.txt
 4) Lancez la génération. Soit vous utiliser l'interface graphique gui_tk.py, soit ainsi:
 
 ```powershell
-.venv\Scripts\python.exe build_site.py --excel chemin\vers\classeur.xlsx --out dist --covers-dir covers
+.venv\Scripts\python.exe build_site.py --excel chemin\vers\classeur.xlsx --out site-sortie --covers-dir covers
 ```
 
-4) Ouvrez `dist/index.html` dans un navigateur, ou servez en local :
+4) Ouvrez `site-sortie/index.html` dans un navigateur, ou servez en local :
 
 ```bash
-python -m http.server 8000 --directory dist
+python -m http.server 8000 --directory site-sortie
 ```
 
 Puis visitez : `http://localhost:8000`
@@ -240,7 +240,7 @@ du dossier du classeur, ou dans `actu/`, `social/`, `images/`.
 
 ## Sorties générées
 
-Dans le dossier `dist/` :
+Dans le dossier de sortie choisi :
 
 - `index.html`
 - `catalogue.html`
@@ -249,8 +249,8 @@ Dans le dossier `dist/` :
 - `collections/` (pages collection)
 - `revues/` (pages revue)
 - `pages/` (pages fixes, selon votre architecture)
+- `catalogue.json`, `actualites.json`
 - `assets/`
-  - `catalogue.json`, `actualites.json`
   - `actu/` (images des actualités)
   - `social/` (icônes des réseaux)
   - `docs/` (PDF déclarés avec un sous-chemin `docs/…`)
@@ -279,12 +279,12 @@ Le thème (HTML/CSS/JS) est modifiable sans toucher à la structure des données
 ## Déploiement
 
 ### Option A — Serveur web (recommandé en université)
-Copiez le contenu de `dist/` sur le serveur (Apache/Nginx) :
+Copiez le contenu du dossier de sortie sur le serveur (Apache/Nginx) :
 - base URL = dossier racine du site
 - aucun runtime requis côté serveur
 
 ### Option B — GitHub Pages
-- déployez `dist/` sur la branche `gh-pages` (ou via GitHub Actions)
+- déployez le dossier de sortie sur la branche `gh-pages` (ou via GitHub Actions)
 - attention aux chemins relatifs (le script peut avoir une option `--base-url` selon les versions)
 
 ### Option C — FTP

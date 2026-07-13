@@ -199,7 +199,7 @@ def test_coherence_producteurs_consommateurs(tmp_path):
     numero_revue = books[books["titre_norm"] == "Numero revue"].iloc[0]
     assert (out / routes.book_public_path(livre_actu["slug"])).exists()
 
-    actualites = json.loads((out / "assets" / "actualites.json").read_text(encoding="utf-8"))
+    actualites = json.loads((out / "actualites.json").read_text(encoding="utf-8"))
     assert actualites[0]["href"] == routes.actualite_book_href(livre_actu["slug"], ".")
 
     wb_xl = pd.ExcelFile(wb)

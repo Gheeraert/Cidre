@@ -143,7 +143,7 @@ def order_pdf_rel(value: str) -> str:
     """Chemin du bon de commande relatif à assets/ : 'fichier.pdf' ou 'docs/fichier.pdf'.
 
     La valeur CONFIG peut être un simple nom, 'docs/fichier.pdf' ou 'assets/docs/fichier.pdf' ;
-    dans tous les cas le fichier est copié vers dist/assets/<rel> et lié en ../assets/<rel>.
+    dans tous les cas le fichier est copié vers assets/<rel> et lié en ../assets/<rel>.
     """
     rel = as_str(value).replace("\\", "/").strip().lstrip("/")
     if rel.startswith("assets/"):

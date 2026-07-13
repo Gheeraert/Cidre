@@ -63,9 +63,9 @@ def copy_covers(covers_dir: Path, out_dir: Path) -> None:
 
 def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> None:
     """
-    Copie les assets déclarés dans CONFIG vers dist/assets.
+    Copie les assets déclarés dans CONFIG vers assets/.
     Règle :
-      - on ne supprime jamais dist/assets/*
+      - on ne supprime jamais assets/*
       - on ne remplace un fichier existant que si la source semble "plus récente" ou différente
         (même logique que copy_covers).
     """
@@ -74,7 +74,7 @@ def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> No
 
     declared = [cfg.logo_left, cfg.logo_right, cfg.favicon, cfg.footer_logo]
     if cfg.order_mode == "pdf" and cfg.order_pdf_filename:
-        # Toujours sous dist/assets/, pour correspondre au lien ../assets/<rel>
+        # Toujours sous assets/, pour correspondre au lien ../assets/<rel>
         declared.append(f"assets/{order_pdf_rel(cfg.order_pdf_filename)}")
 
     for rel in declared:
@@ -136,7 +136,7 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
             except Exception:
                 year_str = str(y).strip()
 
-        # ✅ COVER: ne publier que si le fichier existe vraiment dans dist/covers
+        # COVER: ne publier que si le fichier existe vraiment dans covers/
         cover = as_str(r.get("cover_file"))
         cover = Path(cover.replace("\\", "/")).name if cover else ""
         if cover and cover not in utils.AVAILABLE_COVERS:
@@ -162,8 +162,7 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
             "openedition_url": clean_json_value(r.get("openedition_url")) or "",
         })
 
-    (out_dir / "assets").mkdir(parents=True, exist_ok=True)
-    (out_dir / "assets" / "catalogue.json").write_text(
+    (out_dir / "catalogue.json").write_text(
         json.dumps(recs, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8"
     )

@@ -29,7 +29,6 @@ from .excel_data import (
 )
 from .ftp_publish import publish_ftp
 from .output_transaction import staged_output
-from .routes import GENERATED_ROOT_HTML, editorial_page_public_path, editorial_page_slug, is_generated_editorial_page_slug
 from .utils import compute_available_covers, months_ago, norm_bool
 from .validation import (
     ValidationAlertError, ValidationBlockingError,
@@ -83,6 +82,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     if validate_only:
         out_dir.mkdir(parents=True, exist_ok=True)
         utils.AVAILABLE_COVERS = compute_available_covers(out_dir)
+        remove_legacy_asset_json(out_dir)
         build_catalogue_json(books, out_dir)
         write_validation_csv(report, out_dir / "validation.csv")
         return report
@@ -114,57 +114,15 @@ def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataF
                         revues: pd.DataFrame, contacts: pd.DataFrame,
                         actualites: pd.DataFrame, covers_dir: Optional[Path],
                         report) -> None:
-    # output dir reset (sélectif) :
-    # - on conserve dist/assets/* (sauf les JSON régénérés)
-    # - on conserve dist/covers/*
-    # - on purge seulement les dossiers/pages générés
     out_dir = target_dir
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    # 1) Purger les dossiers générés (évite les pages orphelines)
-    for dname in ("livres", "collections", "revues"):
-        p = out_dir / dname
-        if p.exists() and p.is_dir():
-            shutil.rmtree(p)
-
-    # 2) Purger les HTML générés à la racine (on les réécrit ensuite)
-    root_html = set(GENERATED_ROOT_HTML)
-
-    # + toutes les pages déclarées dans PAGES (sauf actualites/actus gérées ailleurs)
-    if pages is not None and not pages.empty:
-        for _, rr in pages.iterrows():
-            slug = editorial_page_slug(rr.get("slug"))
-            if not is_generated_editorial_page_slug(slug):
-                continue
-            root_html.add(editorial_page_public_path(slug))
-
-    for fn in root_html:
-        fp = out_dir / fn
-        if fp.exists() and fp.is_file():
-            fp.unlink()
-
-    # 3) CSV générés
-    val = out_dir / "validation.csv"
-    if val.exists() and val.is_file():
-        val.unlink()
-
-    # 4) Assets : on garde tout, sauf les JSON régénérés
-    assets_dir = out_dir / "assets"
-    assets_dir.mkdir(parents=True, exist_ok=True)
-
-    for json_name in ("catalogue.json", "actualites.json"):
-        jp = assets_dir / json_name
-        if jp.exists() and jp.is_file():
-            jp.unlink()
-
-    # 5) Covers : conservées
-    (out_dir / "covers").mkdir(parents=True, exist_ok=True)
+    clean_generated_output(out_dir)
 
     # covers (copie d'abord pour savoir ce qui existe vraiment)
     if covers_dir:
         copy_covers(covers_dir, out_dir)
 
-    # inventaire des covers réellement présentes dans dist/covers
+    # inventaire des covers réellement présentes dans le dossier de sortie
     utils.AVAILABLE_COVERS = compute_available_covers(out_dir)
 
     # catalogue.json (ne listera que les covers existantes)
@@ -212,6 +170,50 @@ def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataF
     build_revues(cfg, books, revues, out_dir)
 
 
+def remove_legacy_asset_json(out_dir: Path) -> None:
+    """Supprime les anciennes copies générées sous assets/ sans toucher aux autres assets."""
+    assets_dir = out_dir / "assets"
+    if not assets_dir.exists():
+        return
+    if not assets_dir.is_dir():
+        raise RuntimeError(
+            f"Le chemin {assets_dir} existe mais n'est pas un dossier. "
+            "Impossible de préparer le dossier de sortie."
+        )
+    for json_name in ("catalogue.json", "actualites.json"):
+        legacy = assets_dir / json_name
+        if legacy.exists():
+            if legacy.is_dir():
+                raise RuntimeError(
+                    f"Le chemin {legacy} existe mais n'est pas un fichier. "
+                    "Impossible de supprimer l'ancien JSON généré."
+                )
+            legacy.unlink()
+
+
+def clean_generated_output(target_dir: Path) -> None:
+    """Prépare le staging : seuls assets/ et covers/ persistent entre générations."""
+    for persistent in ("assets", "covers"):
+        path = target_dir / persistent
+        if path.exists() and not path.is_dir():
+            raise RuntimeError(
+                f"Le chemin {path} existe mais n'est pas un dossier. "
+                "Impossible de préparer le dossier de sortie."
+            )
+
+    for child in list(target_dir.iterdir()):
+        if child.name in {"assets", "covers"} and child.is_dir():
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+    (target_dir / "assets").mkdir(parents=True, exist_ok=True)
+    (target_dir / "covers").mkdir(parents=True, exist_ok=True)
+    remove_legacy_asset_json(target_dir)
+
+
 def make_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
 
@@ -225,7 +227,7 @@ def make_arg_parser() -> argparse.ArgumentParser:
     # formes alimentent la même destination args.excel.
     ap.add_argument("--excel", "--tableur", dest="excel", required=True,
                     help="Chemin du classeur Excel (--tableur est un ancien alias accepté)")
-    ap.add_argument("--out", default="dist", help="Dossier de sortie")
+    ap.add_argument("--out", required=True, help="Dossier de sortie")
     ap.add_argument("--covers-dir", default="", help="Dossier contenant les couvertures (images)")
     ap.add_argument("--validate-only", action="store_true", help="Ne génère que validation.csv + catalogue.json")
     ap.add_argument("--force", action="store_true",
@@ -294,7 +296,7 @@ def main():
 
     print(f"OK -> {out_dir}")
     print(f"- validation.csv : {out_dir / 'validation.csv'}")
-    print(f"- catalogue.json : {out_dir / 'assets' / 'catalogue.json'}")
+    print(f"- catalogue.json : {out_dir / 'catalogue.json'}")
 
     # 3) publication FTP (après ONIX)
     if args.publish_ftp:

@@ -13,7 +13,7 @@ import cidre.orchestrator as orchestrator
 import cidre.output_transaction as output_transaction
 
 
-def _workbook(path: Path, title: str = "Un livre") -> Path:
+def _workbook(path: Path, title: str = "Un livre", pages_rows: list[dict] | None = None) -> Path:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "CONFIG"
@@ -43,7 +43,15 @@ def _workbook(path: Path, title: str = "Un livre") -> Path:
 
     pages = wb.create_sheet("PAGES")
     pages.append(["slug", "title", "content_md", "is_published"])
-    pages.append(["presentation", "Presentation", "Texte neuf", 1])
+    if pages_rows is None:
+        pages_rows = [{"slug": "presentation", "title": "Presentation", "content_md": "Texte neuf", "is_published": 1}]
+    for row in pages_rows:
+        pages.append([
+            row.get("slug", ""),
+            row.get("title", ""),
+            row.get("content_md", ""),
+            row.get("is_published", 1),
+        ])
 
     collections = wb.create_sheet("COLLECTIONS")
     collections.append(["collection_id", "name", "slug", "is_active"])
@@ -86,9 +94,107 @@ def _prepare_old_dist(out: Path) -> dict[str, bytes]:
     return _snapshot(out)
 
 
+def test_pages_editoriales_renommees_et_supprimees_disparaissent(tmp_path):
+    out = tmp_path / "site-sortie"
+    wb1 = _workbook(
+        tmp_path / "site-1.xlsx",
+        pages_rows=[
+            {"slug": "presentation", "title": "Presentation", "content_md": "Texte"},
+            {"slug": "ancienne-page", "title": "Ancienne", "content_md": "Ancienne"},
+        ],
+    )
+    bs.build_site(wb1, out, covers_dir=None)
+    assert (out / "presentation.html").exists()
+    assert (out / "ancienne-page.html").exists()
+
+    wb2 = _workbook(
+        tmp_path / "site-2.xlsx",
+        pages_rows=[
+            {"slug": "la-maison", "title": "La maison", "content_md": "Texte"},
+        ],
+    )
+    bs.build_site(wb2, out, covers_dir=None)
+
+    assert (out / "la-maison.html").exists()
+    assert not (out / "presentation.html").exists()
+    assert not (out / "ancienne-page.html").exists()
+
+
+def test_nettoyage_complet_supprime_tout_sauf_assets_et_covers(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-sortie"
+    for rel, content in {
+        "index.html": "ancien",
+        "ancienne-page.html": "ancien",
+        "ancien-fichier.json": "{}",
+        "validation.csv": "ancien",
+        "livres/ancien.html": "ancien",
+        "collections/ancienne.html": "ancien",
+        "revues/ancienne.html": "ancien",
+        "onix/ancien.xml": "<onix/>",
+        "manuel-racine.pdf": "PDF",
+        "assets/logo.png": "PNG",
+        "assets/docs/document.pdf": "PDF",
+        "assets/catalogue.json": "{}",
+        "assets/actualites.json": "[]",
+        "assets/sous-dossier/fichier.txt": "asset",
+        "covers/couverture.jpg": "cover",
+    }.items():
+        p = out / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+    bs.build_site(wb, out, covers_dir=None)
+
+    for rel in [
+        "ancienne-page.html", "ancien-fichier.json", "livres/ancien.html",
+        "collections/ancienne.html", "revues/ancienne.html", "onix/ancien.xml",
+        "manuel-racine.pdf", "assets/catalogue.json", "assets/actualites.json",
+    ]:
+        assert not (out / rel).exists()
+
+    for rel in [
+        "assets/logo.png", "assets/docs/document.pdf",
+        "assets/sous-dossier/fichier.txt", "covers/couverture.jpg",
+    ]:
+        assert (out / rel).exists()
+
+    for rel in [
+        "index.html", "catalogue.html", "catalogue.json", "actualites.json",
+        "validation.csv", "livres", "collections", "revues",
+    ]:
+        assert (out / rel).exists()
+
+
+def test_dossier_sortie_nom_arbitraire(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "site-purh-public"
+
+    bs.build_site(wb, out, covers_dir=None)
+
+    assert (out / "index.html").exists()
+    assert (out / "catalogue.json").exists()
+    assert _leftovers(out) == []
+
+
+def test_assets_ou_covers_non_repertoire_bloquent_sans_modifier_sortie(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx")
+    for name in ("assets", "covers"):
+        out = tmp_path / f"sortie-{name}"
+        out.mkdir()
+        (out / name).write_text("pas un dossier", encoding="utf-8")
+        before = _snapshot(out)
+
+        with pytest.raises(RuntimeError, match="pas un dossier"):
+            bs.build_site(wb, out, covers_dir=None)
+
+        assert _snapshot(out) == before
+        assert _leftovers(out) == []
+
+
 def test_transaction_reussie_sans_ancien_dossier(tmp_path):
     wb = _workbook(tmp_path / "site.xlsx")
-    out = tmp_path / "dist"
+    out = tmp_path / "site-sortie"
 
     report = bs.build_site(wb, out, covers_dir=None)
 
@@ -99,19 +205,25 @@ def test_transaction_reussie_sans_ancien_dossier(tmp_path):
     assert _leftovers(out) == []
 
 
-def test_transaction_reussie_conserve_fichiers_non_geres(tmp_path):
+def test_transaction_reussie_recompose_sortie_et_conserve_assets_covers(tmp_path):
     wb = _workbook(tmp_path / "site.xlsx")
-    out = tmp_path / "dist"
+    out = tmp_path / "site-sortie"
     _prepare_old_dist(out)
+    (out / "assets" / "catalogue.json").write_text("ancien catalogue", encoding="utf-8")
+    (out / "assets" / "actualites.json").write_text("anciennes actus", encoding="utf-8")
 
     bs.build_site(wb, out, covers_dir=None)
 
     assert (out / "index.html").read_text(encoding="utf-8") != "ancien index"
     assert not (out / "livres" / "orpheline.html").exists()
-    assert (out / "manuel.txt").read_text(encoding="utf-8") == "manuel"
+    assert not (out / "manuel.txt").exists()
     assert (out / "assets" / "manuel-asset.txt").read_text(encoding="utf-8") == "asset manuel"
+    assert not (out / "assets" / "catalogue.json").exists()
+    assert not (out / "assets" / "actualites.json").exists()
     assert (out / "covers" / "cover.jpg").read_bytes() == b"cover"
-    assert (out / "onix" / "temoin.xml").read_text(encoding="utf-8") == "<ONIX/>"
+    assert not (out / "onix" / "temoin.xml").exists()
+    assert (out / "catalogue.json").exists()
+    assert (out / "actualites.json").exists()
     assert _leftovers(out) == []
 
 
@@ -303,12 +415,20 @@ def test_echec_nettoyage_preserve_erreur_initiale_dans_message(tmp_path, monkeyp
 
 def test_validate_only_ne_laisse_pas_de_staging_global(tmp_path):
     wb = _workbook(tmp_path / "site.xlsx", title="")
-    out = tmp_path / "dist"
+    out = tmp_path / "sortie"
+    (out / "assets").mkdir(parents=True)
+    (out / "assets" / "catalogue.json").write_text("ancien", encoding="utf-8")
+    (out / "ancien-site.html").write_text("ancien", encoding="utf-8")
+    (out / "onix").mkdir()
+    (out / "onix" / "ancien.xml").write_text("<onix/>", encoding="utf-8")
 
     bs.build_site(wb, out, covers_dir=None, validate_only=True, force_alerts=True)
 
     assert (out / "validation.csv").exists()
-    assert (out / "assets" / "catalogue.json").exists()
+    assert (out / "catalogue.json").exists()
+    assert not (out / "assets" / "catalogue.json").exists()
+    assert (out / "ancien-site.html").exists()
+    assert (out / "onix" / "ancien.xml").exists()
     assert not (out / "index.html").exists()
     assert _leftovers(out) == []
 

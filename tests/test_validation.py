@@ -236,7 +236,8 @@ def test_validate_only_meme_moteur_sans_html(tmp_path, monkeypatch):
     ])
     bs.main()
     assert "BOOK_TITLE_MISSING" in (out / "validation.csv").read_text(encoding="utf-8")
-    assert (out / "assets" / "catalogue.json").exists()
+    assert (out / "catalogue.json").exists()
+    assert not (out / "assets" / "catalogue.json").exists()
     assert not (out / "index.html").exists()
 
 

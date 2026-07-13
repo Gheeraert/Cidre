@@ -24,20 +24,25 @@ GABARIT = RACINE / "gabarit" / "purh_site_excel_gabarit.xlsx"
 # ----------------------------------------------------------------------
 
 def test_option_excel_acceptee():
-    args = make_arg_parser().parse_args(["--excel", "classeur.xlsx"])
+    args = make_arg_parser().parse_args(["--excel", "classeur.xlsx", "--out", "sortie"])
     assert args.excel == "classeur.xlsx"
 
 
 def test_option_tableur_alias_retrocompatible():
-    args = make_arg_parser().parse_args(["--tableur", "classeur.xlsx"])
+    args = make_arg_parser().parse_args(["--tableur", "classeur.xlsx", "--out", "sortie"])
     assert args.excel == "classeur.xlsx"  # même destination interne
 
 
 def test_les_deux_options_meme_destination():
-    a = make_arg_parser().parse_args(["--excel", "x.xlsx"])
-    b = make_arg_parser().parse_args(["--tableur", "x.xlsx"])
+    a = make_arg_parser().parse_args(["--excel", "x.xlsx", "--out", "sortie"])
+    b = make_arg_parser().parse_args(["--tableur", "x.xlsx", "--out", "sortie"])
     assert a.excel == b.excel
     assert not hasattr(a, "tableur")  # une seule valeur interne, pas deux
+
+
+def test_option_out_obligatoire():
+    with pytest.raises(SystemExit):
+        make_arg_parser().parse_args(["--excel", "classeur.xlsx"])
 
 
 def test_aide_presente_excel():

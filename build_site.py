@@ -9,18 +9,18 @@
 """
 Générateur statique : Excel -> site HTML (sans backend)
 - Lit : CONFIG, PAGES, COLLECTIONS, REVUES, CONTACTS + un onglet catalogue
-- Génère : dist/index.html, dist/catalogue.html, dist/nouveautes.html,
-           dist/a-paraitre.html, dist/collections/, dist/revues/, pages statiques, dist/assets/
-- Recherche + filtres (collection / format / année) côté navigateur, via assets/catalogue.json
+- Génère : index.html, catalogue.html, nouveautes.html, a-paraitre.html,
+           collections/, revues/, pages statiques et assets/ dans le dossier de sortie choisi
+- Recherche + filtres (collection / format / année) côté navigateur, via catalogue.json
 
 Usage:
-  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out dist --covers-dir covers
-  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out dist --publish-ftp
+  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out site-sortie --covers-dir covers
+  python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out site-sortie --publish-ftp
   (--tableur est accepté comme ancien alias de --excel)
 
 Notes:
-- Les couvertures (images) sont attendues dans --covers-dir et copiées dans dist/covers
-- Les assets déclarés dans CONFIG (logos, favicon, PDF bon de commande) sont copiés automatiquement vers dist/assets
+- Les couvertures (images) sont attendues dans --covers-dir et copiées dans covers/
+- Les assets déclarés dans CONFIG (logos, favicon, PDF bon de commande) sont copiés automatiquement vers assets/
 - Le nom de l’onglet catalogue peut être donné par CONFIG.books_sheet (sinon auto-détection)
 """
 

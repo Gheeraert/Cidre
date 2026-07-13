@@ -142,7 +142,7 @@ class App(tk.Tk):
 
         # Vars
         self.var_excel = tk.StringVar(value="")
-        self.var_out = tk.StringVar(value=str(Path.cwd() / "dist"))
+        self.var_out = tk.StringVar(value="")
         self.var_covers = tk.StringVar(value="")
         self.var_validate_only = tk.BooleanVar(value=False)
         self.var_export_onix = tk.BooleanVar(value=False)
@@ -506,7 +506,9 @@ class App(tk.Tk):
             self.var_covers.set(path)
 
     def open_out_folder(self):
-        out_dir = Path(self.var_out.get()).expanduser()
+        out_dir = self._selected_out_dir()
+        if out_dir is None:
+            return
         if not out_dir.exists():
             messagebox.showinfo("Info", "Le dossier de sortie n’existe pas encore (génère d’abord).")
             return
@@ -566,7 +568,9 @@ class App(tk.Tk):
             self.log("🛑 Serveur arrêté.")
 
     def toggle_server(self):
-        out_dir = Path(self.var_out.get()).expanduser()
+        out_dir = self._selected_out_dir()
+        if out_dir is None:
+            return
         if self._preview_server:
             self.stop_server()
         else:
@@ -575,7 +579,9 @@ class App(tk.Tk):
                 webbrowser.open(url)
 
     def open_in_browser(self):
-        out_dir = Path(self.var_out.get()).expanduser()
+        out_dir = self._selected_out_dir()
+        if out_dir is None:
+            return
 
         # Si déjà lancé, on ouvre l’URL réelle
         if self._preview_server:
@@ -595,9 +601,26 @@ class App(tk.Tk):
     # -------------------------
     # Build
     # -------------------------
+    def _selected_out_dir(self) -> Path | None:
+        out_value = self.var_out.get().strip()
+        if not out_value:
+            messagebox.showerror(
+                "Dossier de sortie manquant",
+                "Choisissez le dossier dans lequel le site doit être généré.",
+            )
+            return None
+        return Path(out_value).expanduser()
+
     def run_build(self):
         excel = Path(self.var_excel.get()).expanduser().resolve()
-        out_dir = Path(self.var_out.get()).expanduser().resolve()
+        out_value = self.var_out.get().strip()
+        if not out_value:
+            messagebox.showerror(
+                "Dossier de sortie manquant",
+                "Choisissez le dossier dans lequel le site doit être généré.",
+            )
+            return
+        out_dir = Path(out_value).expanduser().resolve()
         covers = Path(self.var_covers.get()).expanduser() if self.var_covers.get().strip() else None
         validate_only = bool(self.var_validate_only.get())
 
@@ -666,6 +689,16 @@ class App(tk.Tk):
             self.log(f"Validation interrompue : rapport écrit dans {out_dir / 'validation.csv'}")
             return
 
+        if out_dir.exists() and not validate_only:
+            if not messagebox.askyesno(
+                "Recomposer le dossier de sortie",
+                "Le dossier de sortie existe déjà.\n\n"
+                "La génération complète va le recomposer entièrement : "
+                "tout son contenu sera supprimé sauf les dossiers assets/ et covers/.\n\n"
+                "Voulez-vous continuer ?",
+            ):
+                return
+
         do_publish_ftp = bool(self.var_publish_ftp.get())
         export_onix = bool(self.var_export_onix.get())
 
@@ -711,7 +744,7 @@ class App(tk.Tk):
                 )
                 self.after(0, lambda: self.log("✅ Terminé."))
                 self.after(0, lambda: self.log(f"→ {out_dir / 'validation.csv'}"))
-                self.after(0, lambda: self.log(f"→ {out_dir / 'assets' / 'catalogue.json'}"))
+                self.after(0, lambda: self.log(f"→ {out_dir / 'catalogue.json'}"))
 
                 if export_onix:
                     try:
