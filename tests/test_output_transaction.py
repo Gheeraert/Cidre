@@ -1,4 +1,5 @@
 import sys
+import warnings
 from pathlib import Path
 
 import openpyxl
@@ -154,6 +155,54 @@ def test_echec_basculement_restaure_ancien_dist(tmp_path, monkeypatch):
     assert _leftovers(out) == []
 
 
+def test_permissionerror_basculement_restaure_sans_copie_de_secours(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "dist"
+    before = _prepare_old_dist(out)
+    original_rename = output_transaction._rename_path
+    original_copytree = output_transaction.shutil.copytree
+    copy_calls = []
+
+    def observed_copytree(src: Path, dst: Path, *args, **kwargs):
+        copy_calls.append((Path(src), Path(dst)))
+        return original_copytree(src, dst, *args, **kwargs)
+
+    def flaky_rename(src: Path, dst: Path) -> None:
+        if ".build-" in src.name and dst == out:
+            raise PermissionError("boom-permission")
+        original_rename(src, dst)
+
+    monkeypatch.setattr(output_transaction.shutil, "copytree", observed_copytree)
+    monkeypatch.setattr(output_transaction, "_rename_path", flaky_rename)
+
+    with pytest.raises(PermissionError, match="boom-permission"):
+        bs.build_site(wb, out, covers_dir=None)
+
+    assert _snapshot(out) == before
+    assert _leftovers(out) == []
+    assert all(dst != out for _src, dst in copy_calls)
+
+
+def test_permissionerror_sans_ancien_out_ne_cree_pas_de_sortie_partielle(tmp_path, monkeypatch):
+    out = tmp_path / "dist"
+    original_rename = output_transaction._rename_path
+
+    def flaky_rename(src: Path, dst: Path) -> None:
+        if ".build-" in src.name and dst == out:
+            raise PermissionError("boom-permission")
+        original_rename(src, dst)
+
+    monkeypatch.setattr(output_transaction, "_rename_path", flaky_rename)
+
+    with pytest.raises(PermissionError, match="boom-permission"):
+        with output_transaction.staged_output(out) as tx:
+            (tx.staging_dir / "index.html").write_text("nouveau", encoding="utf-8")
+            tx.commit()
+
+    assert not out.exists()
+    assert _leftovers(out) == []
+
+
 def test_echec_nettoyage_backup_signale_et_garde_nouveau_site(tmp_path, monkeypatch, recwarn):
     wb = _workbook(tmp_path / "site.xlsx")
     out = tmp_path / "dist"
@@ -176,6 +225,80 @@ def test_echec_nettoyage_backup_signale_et_garde_nouveau_site(tmp_path, monkeypa
     backups = sorted(out.parent.glob(f".{out.name}.backup-*"))
     assert len(backups) == 1
     original_remove(backups[0])
+
+
+def test_warning_backup_en_erreur_ne_declenche_pas_rollback(tmp_path, monkeypatch):
+    wb = _workbook(tmp_path / "site.xlsx")
+    out = tmp_path / "dist"
+    _prepare_old_dist(out)
+    original_remove = output_transaction._remove_tree
+
+    def flaky_remove(path: Path) -> None:
+        if ".backup-" in path.name:
+            raise RuntimeError("boom-cleanup")
+        original_remove(path)
+
+    monkeypatch.setattr(output_transaction, "_remove_tree", flaky_remove)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", output_transaction.OutputBackupCleanupWarning)
+        with pytest.raises(output_transaction.OutputBackupCleanupWarning):
+            bs.build_site(wb, out, covers_dir=None)
+
+    assert (out / "index.html").exists()
+    assert "ancien index" not in (out / "index.html").read_text(encoding="utf-8")
+    assert not sorted(out.parent.glob(f".{out.name}.build-*"))
+    backups = sorted(out.parent.glob(f".{out.name}.backup-*"))
+    assert len(backups) == 1
+    assert (backups[0] / "index.html").read_text(encoding="utf-8") == "ancien index"
+    original_remove(backups[0])
+
+
+def test_echec_preparation_staging_nettoie_copie_partielle(tmp_path, monkeypatch):
+    out = tmp_path / "dist"
+    before = _prepare_old_dist(out)
+    original_copytree = output_transaction.shutil.copytree
+
+    def failing_copytree(src: Path, dst: Path, *args, **kwargs):
+        dst = Path(dst)
+        dst.mkdir(parents=True)
+        (dst / "partiel.txt").write_text("partiel", encoding="utf-8")
+        raise RuntimeError("boom-copytree")
+
+    monkeypatch.setattr(output_transaction.shutil, "copytree", failing_copytree)
+
+    with pytest.raises(RuntimeError, match="boom-copytree"):
+        with output_transaction.staged_output(out):
+            pass
+
+    assert _snapshot(out) == before
+    assert _leftovers(out) == []
+    monkeypatch.setattr(output_transaction.shutil, "copytree", original_copytree)
+
+
+def test_echec_nettoyage_preserve_erreur_initiale_dans_message(tmp_path, monkeypatch):
+    out = tmp_path / "dist"
+    original_remove = output_transaction._remove_tree
+    staging_seen = {}
+
+    def flaky_remove(path: Path) -> None:
+        if ".build-" in path.name:
+            staging_seen["path"] = path
+            raise RuntimeError("boom-rmtree")
+        original_remove(path)
+
+    monkeypatch.setattr(output_transaction, "_remove_tree", flaky_remove)
+
+    with pytest.raises(output_transaction.OutputCleanupError) as exc:
+        with output_transaction.staged_output(out) as tx:
+            (tx.staging_dir / "partiel.txt").write_text("partiel", encoding="utf-8")
+            raise RuntimeError("boom-initial")
+
+    msg = str(exc.value)
+    assert "boom-initial" in msg
+    assert "Staging résiduel" in msg
+    assert str(staging_seen["path"]) in msg
+    original_remove(staging_seen["path"])
 
 
 def test_validate_only_ne_laisse_pas_de_staging_global(tmp_path):
@@ -216,4 +339,3 @@ def test_alerte_avec_force_genere_transactionnellement(tmp_path):
     assert (out / "index.html").exists()
     assert not (out / "livres" / "orpheline.html").exists()
     assert _leftovers(out) == []
-
