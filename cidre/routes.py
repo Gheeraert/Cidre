@@ -109,7 +109,8 @@ def editorial_page_public_path(slug: Any) -> str:
 
 
 def actualite_anchor_candidate(title: Any) -> str:
-    return slugify(as_str(title)) or "actu"
+    raw_title = as_str(title)
+    return slugify(raw_title) if raw_title else "actu"
 
 
 def actualite_anchor_id(title: Any, used_ids: set[str]) -> str:

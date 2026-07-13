@@ -180,6 +180,19 @@ def load_revues(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["is_active"] = df["is_active"].apply(lambda x: True if is_na(x) else norm_bool(x))
     df["order"] = pd.to_numeric(df["order"], errors="coerce")
 
+    df["_source_slug"] = df["slug"].apply(lambda x: slugify(as_str(x)) if as_str(x) else "")
+    df["_source_title"] = df["title"].apply(as_str)
+    df["_slug_origin"] = df.apply(
+        lambda r: "explicit" if as_str(r.get("_source_slug"))
+        else ("fallback_title" if as_str(r.get("_source_title"))
+              else ("fallback_journal_id" if as_str(r.get("journal_id")) else "fallback_revue")),
+        axis=1,
+    )
+    df["_slug_candidate"] = df.apply(
+        lambda r: revue_public_slug(r.get("_source_slug"), r.get("_source_title"), r.get("journal_id")),
+        axis=1,
+    )
+
     # Fallbacks utiles
     df["title"] = df.apply(lambda r: as_str(r.get("title")) or as_str(r.get("journal_id")), axis=1)
     df["slug"] = df.apply(

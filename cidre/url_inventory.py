@@ -21,6 +21,7 @@ from .excel_data import (
 )
 from .routes import (
     AUTOMATIC_TARGETS,
+    actualite_anchor_candidate,
     actualite_anchor_id,
     actualite_book_href,
     book_public_path,
@@ -30,7 +31,6 @@ from .routes import (
     editorial_page_slug,
     is_generated_editorial_page_slug,
     revue_public_path,
-    revue_public_slug,
 )
 from .utils import as_str, norm_bool, slugify
 
@@ -166,15 +166,7 @@ def collect_url_inventory(excel_path: Path) -> list[dict[str, str]]:
     if revues is not None and not revues.empty:
         active_revues = revues[revues.get("is_active", 1).apply(norm_bool)].copy()
         for idx, r in active_revues.iterrows():
-            final_slug = revue_public_slug(r.get("slug"), r.get("title"), r.get("journal_id"))
-            if as_str(r.get("slug")):
-                origin = "explicit"
-            elif as_str(r.get("title")):
-                origin = "fallback_title"
-            elif as_str(r.get("journal_id")):
-                origin = "fallback_journal_id"
-            else:
-                origin = "fallback_revue"
+            final_slug = as_str(r.get("slug"))
             rows.append(_row(
                 "revue",
                 revue_public_path(r.get("slug"), r.get("title"), r.get("journal_id")),
@@ -182,12 +174,13 @@ def collect_url_inventory(excel_path: Path) -> list[dict[str, str]]:
                 identifier=r.get("journal_id"),
                 title=r.get("title"),
                 active=True,
-                explicit_slug=r.get("slug") if origin == "explicit" else "",
-                slug_origin=origin,
-                slug_candidate=final_slug,
+                explicit_slug=r.get("_source_slug"),
+                slug_origin=r.get("_slug_origin"),
+                slug_candidate=r.get("_slug_candidate"),
                 final_slug=final_slug,
             ))
 
+    has_open_access_page = False
     if pages is not None and not pages.empty:
         pages_df = pages.copy()
         has_published_column = "is_published" in pages_df.columns
@@ -198,6 +191,8 @@ def collect_url_inventory(excel_path: Path) -> list[dict[str, str]]:
             slug = editorial_page_slug(p.get("slug"))
             if not is_generated_editorial_page_slug(slug):
                 continue
+            if slug == "open-access":
+                has_open_access_page = True
             rows.append(_row(
                 "editorial_page",
                 editorial_page_public_path(slug),
@@ -210,10 +205,22 @@ def collect_url_inventory(excel_path: Path) -> list[dict[str, str]]:
                 slug_candidate=slug,
                 final_slug=slug,
             ))
+    if not has_open_access_page:
+        rows.append(_row(
+            "fallback_page",
+            "open-access.html",
+            identifier="open-access",
+            active=True,
+            slug_origin="generated_fallback",
+            slug_candidate="open-access",
+            final_slug="open-access",
+            notes="Page de secours garantie par build_pages",
+        ))
 
     used_actualite_ids: set[str] = set()
     if actualites is not None and not actualites.empty:
         for idx, a in actualites.iterrows():
+            candidate = actualite_anchor_candidate(a.get("title"))
             anchor_id = actualite_anchor_id(a.get("title"), used_actualite_ids)
             identifier = as_str(a.get("title")) or as_str(a.get("id13")) or f"row-{_excel_row(idx)}"
             rows.append(_row(
@@ -223,9 +230,10 @@ def collect_url_inventory(excel_path: Path) -> list[dict[str, str]]:
                 identifier=identifier,
                 title=a.get("title"),
                 active=True,
-                slug_origin="fallback_title",
-                slug_candidate=anchor_id,
+                slug_origin="fallback_title" if as_str(a.get("title")) else "fallback_actu",
+                slug_candidate=candidate,
                 final_slug=anchor_id,
+                auto_uniquified=anchor_id != candidate,
             ))
             id13 = as_str(a.get("id13"))
             if id13 and id13 in id13_to_slug:

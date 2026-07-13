@@ -32,7 +32,7 @@ def _book(isbn, slug, title, collection="Essais", collection_id="col-essais"):
     ]
 
 
-def _workbook(path: Path) -> Path:
+def _workbook(path: Path, pages_rows=None, revues_rows=None, actualites_rows=None, include_pages=True) -> Path:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "CONFIG"
@@ -58,11 +58,15 @@ def _workbook(path: Path) -> Path:
     books.append(_book("9782877750005", "livre-actu", "Livre actu"))
     books.append(_book("9782877750006", "numero-revue", "Numero revue", "Revue test", "revue-test"))
 
-    pages = wb.create_sheet("PAGES")
-    pages.append(["slug", "title", "content_md", "is_published"])
-    pages.append(["presentation", "Presentation", "Texte", 1])
-    pages.append(["brouillon", "Brouillon", "Texte", 0])
-    pages.append(["actualites", "Actualites", "Texte", 1])
+    if include_pages:
+        pages = wb.create_sheet("PAGES")
+        pages.append(["slug", "title", "content_md", "is_published"])
+        for row in (pages_rows if pages_rows is not None else [
+            ["presentation", "Presentation", "Texte", 1],
+            ["brouillon", "Brouillon", "Texte", 0],
+            ["actualites", "Actualites", "Texte", 1],
+        ]):
+            pages.append(row)
 
     collections = wb.create_sheet("COLLECTIONS")
     collections.append(["collection_id", "name", "slug", "is_active"])
@@ -70,11 +74,15 @@ def _workbook(path: Path) -> Path:
 
     revues = wb.create_sheet("REVUES")
     revues.append(["journal_id", "title", "slug", "is_active"])
-    revues.append(["revue-test", "Revue test", "revue-test", 1])
+    for row in (revues_rows if revues_rows is not None else [["revue-test", "Revue test", "revue-test", 1]]):
+        revues.append(row)
 
     actualites = wb.create_sheet("ACTUALITES")
     actualites.append(["title", "image", "date", "text", "is_active", "id13", "link"])
-    actualites.append(["Actu livre", "", "2026-01-01", "Texte", 1, "9782877750005", ""])
+    for row in (actualites_rows if actualites_rows is not None else [
+        ["Actu livre", "", "2026-01-01", "Texte", 1, "9782877750005", ""],
+    ]):
+        actualites.append(row)
 
     contacts = wb.create_sheet("CONTACTS")
     contacts.append(["label", "name", "role", "email", "phone", "address", "order", "is_active"])
@@ -90,6 +98,14 @@ def _books(path: Path):
     return load_books(wb, detect_books_sheet(wb, cfg.books_sheet))
 
 
+def _inventory_rows(path: Path):
+    return collect_url_inventory(path)
+
+
+def _rows_by(rows, entity_type):
+    return [r for r in rows if r["entity_type"] == entity_type]
+
+
 def test_provenance_slug_explicite_non_unicifie(tmp_path):
     books = _books(_workbook(tmp_path / "site.xlsx"))
     row = books[books["titre_norm"] == "Slug deja suffixe"].iloc[0]
@@ -98,6 +114,39 @@ def test_provenance_slug_explicite_non_unicifie(tmp_path):
     assert row["slug"] == "mon-livre-2"
     assert row["_slug_was_uniquified"] is False
     assert row["_slug_origin"] == "explicit"
+
+
+def test_provenance_revues_depuis_sources_excel(tmp_path):
+    wb_path = _workbook(tmp_path / "revues.xlsx", revues_rows=[
+        ["jid-explicit", "Titre explicite", "revue-test", 1],
+        ["jid-title", "Revue test", "", 1],
+        ["jid-only", "", "", 1],
+        ["", "", "", 1],
+    ])
+    wb = pd.ExcelFile(wb_path)
+    cfg = load_config(wb, "CONFIG")
+    revues = load_revues(wb, cfg.revues_sheet)
+
+    expected = [
+        ("revue-test", "Titre explicite", "explicit", "revue-test", "revue-test"),
+        ("", "Revue test", "fallback_title", "revue-test", "revue-test"),
+        ("", "", "fallback_journal_id", "jid-only", "jid-only"),
+        ("", "", "fallback_revue", "revue", "revue"),
+    ]
+    for (_, row), (source_slug, source_title, origin, candidate, final_slug) in zip(revues.iterrows(), expected):
+        assert row["_source_slug"] == source_slug
+        assert row["_source_title"] == source_title
+        assert row["_slug_origin"] == origin
+        assert row["_slug_candidate"] == candidate
+        assert row["slug"] == final_slug
+
+    inventory = _rows_by(_inventory_rows(wb_path), "revue")
+    assert [(r["explicit_slug"], r["slug_origin"], r["slug_candidate"], r["final_slug"]) for r in inventory] == [
+        ("revue-test", "explicit", "revue-test", "revue-test"),
+        ("", "fallback_title", "revue-test", "revue-test"),
+        ("", "fallback_journal_id", "jid-only", "jid-only"),
+        ("", "fallback_revue", "revue", "revue"),
+    ]
 
 
 def test_provenance_doublon_explicite(tmp_path):
@@ -190,3 +239,74 @@ def test_inventaire_csv(tmp_path):
     assert by_title["Sans ISBN"]["slug_origin"] == "fallback_title"
     assert any(r["public_path"] == "livres/livre-actu.html" for r in rows)
     assert any(r["public_path"] == "actualites.html#actu-actu-livre" for r in rows)
+
+
+def _open_access_rows(path: Path):
+    rows = collect_url_inventory(path)
+    return [r for r in rows if r["public_path"] == "open-access.html"]
+
+
+def test_inventaire_open_access_page_publiee(tmp_path):
+    wb = _workbook(tmp_path / "open-access.xlsx", pages_rows=[
+        ["open-access", "Open access", "Texte", 1],
+    ])
+    rows = _open_access_rows(wb)
+    assert len(rows) == 1
+    assert rows[0]["entity_type"] == "editorial_page"
+    assert rows[0]["slug_origin"] == "explicit"
+
+
+def test_inventaire_open_access_absente(tmp_path):
+    wb = _workbook(tmp_path / "sans-open-access.xlsx", pages_rows=[
+        ["presentation", "Presentation", "Texte", 1],
+    ])
+    rows = _open_access_rows(wb)
+    assert len(rows) == 1
+    assert rows[0]["entity_type"] == "fallback_page"
+    assert rows[0]["identifier"] == "open-access"
+    assert rows[0]["slug_origin"] == "generated_fallback"
+    assert rows[0]["notes"] == "Page de secours garantie par build_pages"
+
+
+def test_inventaire_open_access_non_publiee(tmp_path):
+    wb = _workbook(tmp_path / "open-access-brouillon.xlsx", pages_rows=[
+        ["open-access", "Open access", "Texte", 0],
+    ])
+    rows = _open_access_rows(wb)
+    assert len(rows) == 1
+    assert rows[0]["entity_type"] == "fallback_page"
+
+
+def test_inventaire_open_access_sans_feuille_pages(tmp_path):
+    wb = _workbook(tmp_path / "sans-pages.xlsx", include_pages=False)
+    rows = _open_access_rows(wb)
+    assert len(rows) == 1
+    assert rows[0]["entity_type"] == "fallback_page"
+
+
+def test_inventaire_actualites_candidat_final_et_unicisation(tmp_path):
+    wb = _workbook(tmp_path / "actus.xlsx", actualites_rows=[
+        ["Même titre", "", "2026-01-03", "Texte", 1, "", ""],
+        ["Même titre", "", "2026-01-02", "Texte", 1, "", ""],
+        ["", "", "2026-01-01", "Texte sans titre", 1, "", ""],
+    ])
+    anchors = _rows_by(collect_url_inventory(wb), "actualite_anchor")
+    by_path = {r["public_path"]: r for r in anchors}
+
+    first = by_path["actualites.html#actu-meme-titre"]
+    assert first["slug_origin"] == "fallback_title"
+    assert first["slug_candidate"] == "meme-titre"
+    assert first["final_slug"] == "meme-titre"
+    assert first["auto_uniquified"] == "False"
+
+    second = by_path["actualites.html#actu-meme-titre-2"]
+    assert second["slug_origin"] == "fallback_title"
+    assert second["slug_candidate"] == "meme-titre"
+    assert second["final_slug"] == "meme-titre-2"
+    assert second["auto_uniquified"] == "True"
+
+    fallback = by_path["actualites.html#actu-actu"]
+    assert fallback["slug_origin"] == "fallback_actu"
+    assert fallback["slug_candidate"] == "actu"
+    assert fallback["final_slug"] == "actu"
+    assert fallback["auto_uniquified"] == "False"
