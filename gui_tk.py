@@ -13,6 +13,8 @@ import webbrowser
 from local_server import PreviewServer
 import pandas as pd
 from ftplib import FTP, FTP_TLS, error_perm
+from cidre.routes import book_public_path
+from cidre.utils import as_str
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
 from build_site import (
@@ -31,6 +33,100 @@ def should_continue_after_validation(report, confirm_alerts) -> bool:
     if report.has_alerts:
         return bool(confirm_alerts(report))
     return True
+
+
+def find_book_url_collisions(books):
+    """Retourne les groupes de livres actifs qui produisent la meme URL publique."""
+    if books is None or books.empty or "slug" not in books.columns:
+        return []
+
+    groups = {}
+    for idx, row in books.iterrows():
+        slug = as_str(row.get("slug"))
+        if not slug:
+            continue
+        public_path = book_public_path(slug)
+        groups.setdefault(public_path, []).append((idx, row))
+
+    collisions = []
+    for public_path, items in groups.items():
+        if len(items) >= 2:
+            collisions.append({"public_path": public_path, "items": items})
+    return sorted(collisions, key=lambda c: c["public_path"])
+
+
+def _format_book_collision_item(idx, row) -> str:
+    line_no = idx + 2
+    title = as_str(row.get("titre_norm") or row.get("Titre")) or "(titre absent)"
+    id13 = as_str(row.get("id13"))
+    source_slug = as_str(row.get("_source_slug"))
+    slug_label = source_slug if source_slug else "(vide - URL calculee automatiquement)"
+    isbn_part = f" - ISBN {id13}" if id13 else ""
+    return f"- ligne {line_no} - {title}{isbn_part}\n  slug Excel : {slug_label}"
+
+
+def _format_book_collisions(collisions, limit=None) -> str:
+    selected = collisions if limit is None else collisions[:limit]
+    parts = []
+    for collision in selected:
+        lines = [collision["public_path"]]
+        lines.extend(_format_book_collision_item(idx, row) for idx, row in collision["items"])
+        parts.append("\n\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def format_blocking_validation_message(report, books):
+    """Formate le blocage GUI sans creer de fenetre Tk."""
+    collisions = find_book_url_collisions(books)
+    if collisions:
+        title = "URLs de livres en conflit"
+        plural = (
+            "Plusieurs ouvrages actifs produisent la meme URL"
+            if len(collisions) > 1
+            else "Deux ouvrages actifs produisent la meme URL"
+        )
+        message = [
+            "La generation est arretee avant toute modification du site.",
+            "",
+            f"{plural} :",
+            "",
+            _format_book_collisions(collisions, limit=5),
+        ]
+        remaining = len(collisions) - 5
+        if remaining > 0:
+            message.extend(["", f"... et {remaining} autre(s) URL en conflit."])
+
+        message.extend([
+            "",
+            "Dans le fichier Excel, modifiez la cellule de la colonne « slug »",
+            "de l'un des ouvrages afin de lui donner une valeur differente,",
+            "par exemple « meme-slug-2 ».",
+            "",
+            "Enregistrez le classeur, puis relancez la generation.",
+        ])
+
+        other_blocking = [
+            issue for issue in report.blocking_issues
+            if not (issue.code == "DUPLICATE_OUTPUT_TARGET" and issue.entity == "book")
+        ]
+        if other_blocking:
+            message.extend(["", "Autres problemes bloquants :"])
+            message.extend(f"- {i.code} : {i.message}" for i in other_blocking)
+
+        log_message = "Collisions d'URL de livres detectees:\n\n" + _format_book_collisions(collisions)
+        if other_blocking:
+            log_message += "\n\nAutres problemes bloquants:\n" + "\n".join(
+                f"- {i.code} : {i.message}" for i in other_blocking
+            )
+        return title, "\n".join(message), log_message
+
+    title = "Blocage de validation"
+    message = "La generation est interrompue avant toute modification du dossier de sortie.\n\n"
+    message += "\n".join(f"- {i.code} : {i.message}" for i in report.blocking_issues[:8])
+    if len(report.blocking_issues) > 8:
+        message += f"\n- ... {len(report.blocking_issues) - 8} autre(s) probleme(s)"
+    return title, message, message
+
 
 class App(tk.Tk):
     def __init__(self):
@@ -513,18 +609,25 @@ class App(tk.Tk):
         except Exception:
             new_months = 6
 
+        books_validation = pd.DataFrame()
         try:
-            wb = pd.ExcelFile(excel)
-            cfg_validation = load_config(wb, "CONFIG")
-            books_sheet = detect_books_sheet(wb, getattr(cfg_validation, "books_sheet", "") or "")
+            with pd.ExcelFile(excel) as wb:
+                cfg_validation = load_config(wb, "CONFIG")
+                books_sheet = detect_books_sheet(wb, getattr(cfg_validation, "books_sheet", "") or "")
+                books_validation = load_books(wb, books_sheet)
+                pages_validation = load_pages(wb, cfg_validation.pages_sheet)
+                collections_validation = load_collections(wb, cfg_validation.collections_sheet)
+                revues_validation = load_revues(wb, cfg_validation.revues_sheet)
+                contacts_validation = load_contacts(wb, cfg_validation.contacts_sheet)
+                actualites_validation = load_actualites(wb)
             validation_report = validate_site_data(
-                books=load_books(wb, books_sheet),
+                books=books_validation,
                 cfg=cfg_validation,
-                pages=load_pages(wb, cfg_validation.pages_sheet),
-                collections=load_collections(wb, cfg_validation.collections_sheet),
-                revues=load_revues(wb, cfg_validation.revues_sheet),
-                contacts=load_contacts(wb, cfg_validation.contacts_sheet),
-                actualites=load_actualites(wb),
+                pages=pages_validation,
+                collections=collections_validation,
+                revues=revues_validation,
+                contacts=contacts_validation,
+                actualites=actualites_validation,
                 excel_path=excel,
                 out_dir=out_dir,
                 covers_dir=covers,
@@ -549,14 +652,9 @@ class App(tk.Tk):
             )
 
         if validation_report.has_blocking_issues:
-            extrait = "\n".join(
-                f"- {i.code} : {i.message}" for i in validation_report.blocking_issues[:8]
-            )
-            messagebox.showerror(
-                "Blocage de validation",
-                "La génération est interrompue avant toute modification du dossier de sortie.\n\n"
-                f"{extrait}"
-            )
+            title, message, log_message = format_blocking_validation_message(validation_report, books_validation)
+            self.log(log_message)
+            messagebox.showerror(title, message)
             return
 
         if not should_continue_after_validation(validation_report, confirm_alerts):

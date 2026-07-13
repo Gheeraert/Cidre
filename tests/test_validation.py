@@ -12,7 +12,11 @@ import build_site as bs
 import cidre.orchestrator as orchestrator
 from cidre.data_models import load_config
 from cidre.excel_data import detect_books_sheet, load_books
-from gui_tk import should_continue_after_validation
+from gui_tk import (
+    find_book_url_collisions,
+    format_blocking_validation_message,
+    should_continue_after_validation,
+)
 
 
 def _book(**over):
@@ -488,6 +492,112 @@ def test_decision_gui_pure():
         bs.ValidationIssue("blocking", "X", "site", "id", "field", "msg")
     ])
     assert should_continue_after_validation(blocking, lambda r: True) is False
+
+
+def _blocking_report(*issues):
+    return bs.ValidationReport(list(issues))
+
+
+def _blocking_issue(code="DUPLICATE_OUTPUT_TARGET", entity="book", message="collision"):
+    return bs.ValidationIssue("blocking", code, entity, "id", "slug", message)
+
+
+def test_gui_message_collision_livres_explicite_simple():
+    books = pd.DataFrame([
+        {
+            "titre_norm": "Premier ouvrage",
+            "id13": "9782877750001",
+            "_source_slug": "meme-slug",
+            "slug": "meme-slug",
+        },
+        {
+            "titre_norm": "Second ouvrage",
+            "id13": "9791024000008",
+            "_source_slug": "meme-slug",
+            "slug": "meme-slug",
+        },
+    ], index=[197, 457])
+    title, message, log_message = format_blocking_validation_message(
+        _blocking_report(_blocking_issue()), books
+    )
+    assert title == "URLs de livres en conflit"
+    assert "livres/meme-slug.html" in message
+    assert "ligne 199" in message
+    assert "ligne 459" in message
+    assert "Premier ouvrage" in message
+    assert "Second ouvrage" in message
+    assert "ISBN 9782877750001" in message
+    assert "ISBN 9791024000008" in message
+    assert "colonne « slug »" in message
+    assert "modifiez" in message
+    assert "n'est pas" not in message
+    assert "livres/meme-slug.html" in log_message
+
+
+def test_gui_message_collision_livres_slugs_calcules():
+    books = pd.DataFrame([
+        {"titre_norm": "Premier", "id13": "", "_source_slug": "", "slug": "meme-slug"},
+        {"titre_norm": "Second", "id13": "", "_source_slug": "", "slug": "meme-slug"},
+    ], index=[0, 1])
+    _, message, _ = format_blocking_validation_message(_blocking_report(_blocking_issue()), books)
+    assert "slug Excel : (vide - URL calculee automatiquement)" in message
+
+
+def test_gui_message_collision_livres_sources_normalisees_distinctes():
+    books = pd.DataFrame([
+        {"titre_norm": "Premier", "id13": "", "_source_slug": "Mon Livre", "slug": "mon-livre"},
+        {"titre_norm": "Second", "id13": "", "_source_slug": "mon-livre", "slug": "mon-livre"},
+    ])
+    collisions = find_book_url_collisions(books)
+    assert len(collisions) == 1
+    _, message, _ = format_blocking_validation_message(_blocking_report(_blocking_issue()), books)
+    assert message.count("livres/mon-livre.html") == 1
+    assert "slug Excel : Mon Livre" in message
+    assert "slug Excel : mon-livre" in message
+    assert "colonne « slug »" in message
+
+
+def test_gui_message_collision_livres_limite_dialogue_et_detail_journal():
+    rows = []
+    for i in range(6):
+        rows.extend([
+            {"titre_norm": f"Premier {i}", "id13": "", "_source_slug": f"slug-{i}", "slug": f"slug-{i}"},
+            {"titre_norm": f"Second {i}", "id13": "", "_source_slug": f"slug-{i}", "slug": f"slug-{i}"},
+        ])
+    books = pd.DataFrame(rows)
+    title, message, log_message = format_blocking_validation_message(
+        _blocking_report(_blocking_issue()), books
+    )
+    assert title == "URLs de livres en conflit"
+    assert message.count("livres/slug-") == 5
+    assert "... et 1 autre(s) URL en conflit." in message
+    assert log_message.count("livres/slug-") == 6
+
+
+def test_gui_message_blocage_generique_sans_collision_livre():
+    report = _blocking_report(
+        bs.ValidationIssue("blocking", "OUTPUT_PATH_NOT_DIRECTORY", "site", "dist", "out_dir", "Sortie invalide.")
+    )
+    title, message, _ = format_blocking_validation_message(report, pd.DataFrame())
+    assert title == "Blocage de validation"
+    assert "OUTPUT_PATH_NOT_DIRECTORY" in message
+    assert "Sortie invalide." in message
+
+
+def test_gui_message_collision_livres_et_autre_blocage():
+    books = pd.DataFrame([
+        {"titre_norm": "Premier", "id13": "", "_source_slug": "meme-slug", "slug": "meme-slug"},
+        {"titre_norm": "Second", "id13": "", "_source_slug": "meme-slug", "slug": "meme-slug"},
+    ])
+    report = _blocking_report(
+        _blocking_issue(),
+        bs.ValidationIssue("blocking", "OUTPUT_PATH_NOT_DIRECTORY", "site", "dist", "out_dir", "Sortie invalide."),
+    )
+    title, message, _ = format_blocking_validation_message(report, books)
+    assert title == "URLs de livres en conflit"
+    assert "livres/meme-slug.html" in message
+    assert "Autres problemes bloquants" in message
+    assert "OUTPUT_PATH_NOT_DIRECTORY" in message
 
 
 def _workbook(path: Path, title: str = "Un livre", id13: str = "9782877750001",
