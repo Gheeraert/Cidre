@@ -13,6 +13,11 @@ import pandas as pd
 
 from .data_models import SiteConfig
 from .html_templates import page_shell
+from .routes import (
+    actualite_anchor_id, actualite_book_href, actualites_href,
+    book_slug_candidate, book_slug_origin, collection_public_slug,
+    revue_public_slug,
+)
 from .utils import (
     as_str, e, ensure_unique_slug, fmt_cm_guess, fmt_display_date, fmt_eur,
     fmt_int, format_credit_line, html_to_text, is_na, md_to_html, norm_bool,
@@ -178,7 +183,7 @@ def load_revues(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     # Fallbacks utiles
     df["title"] = df.apply(lambda r: as_str(r.get("title")) or as_str(r.get("journal_id")), axis=1)
     df["slug"] = df.apply(
-        lambda r: slugify(as_str(r.get("slug")) or as_str(r.get("title")) or as_str(r.get("journal_id")) or "revue"),
+        lambda r: revue_public_slug(r.get("slug"), r.get("title"), r.get("journal_id")),
         axis=1
     )
 
@@ -205,8 +210,7 @@ def build_revue_slug_map(revues: pd.DataFrame) -> Dict[str, str]:
             continue
         if norm_bool(r.get("is_active")):
             # même calcul de slug que build_revues
-            out[jid] = slugify(as_str(r.get("slug")) or as_str(r.get("title"))
-                               or as_str(r.get("journal_id")) or "revue")
+            out[jid] = revue_public_slug(r.get("slug"), r.get("title"), r.get("journal_id"))
         else:
             out.setdefault(jid, "")
     return out
@@ -240,7 +244,7 @@ def build_collection_slug_map(collections: pd.DataFrame,
         if not cid:
             continue
         if norm_bool(c.get("is_active")):
-            target = slugify(raw_slug) if raw_slug else cid
+            target = collection_public_slug(raw_slug, cid)
         else:
             target = ""
         if cid in out and out[cid] and target and out[cid] != target:
@@ -415,13 +419,12 @@ def build_actualites_json(actualites: pd.DataFrame, out_dir: Path, books: Option
         text_html = ""
         excerpt = ""
 
-        base_id = slugify(as_str(r.get("title"))) or "actu"
-        actu_id = ensure_unique_slug(base_id, used_ids)
+        actu_id = actualite_anchor_id(r.get("title"), used_ids)
 
         book_id13 = as_str(r.get("id13"))
-        href = "./actualites.html"
+        href = actualites_href(".")
         if book_id13 and book_id13 in id13_to_slug:
-            href = f"./livres/{id13_to_slug[book_id13]}.html"
+            href = actualite_book_href(id13_to_slug[book_id13], ".")
 
         ext_link = normalize_external_url(r.get("link"))
 
@@ -647,16 +650,20 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["_source_slug"] = df["slug"].apply(lambda x: slugify(as_str(x)) if as_str(x) else "")
     used: set[str] = set()
     out_slugs: List[str] = []
+    origins: List[str] = []
+    candidates: List[str] = []
+    was_uniquified: List[bool] = []
     for _, r in df.iterrows():
-        s = as_str(r.get("slug"))
-        if not s:
-            t = as_str(r.get("titre_norm") or r.get("Titre") or "ouvrage")
-            base = slugify(t)
-            if r.get("id13"):
-                base = f"{base}-{r.get('id13')}"
-            s = base
-        s = ensure_unique_slug(slugify(str(s)), used)
-        out_slugs.append(s)
+        title = as_str(r.get("titre_norm") or r.get("Titre") or "ouvrage")
+        candidate = book_slug_candidate(r.get("slug"), title, r.get("id13"))
+        final_slug = ensure_unique_slug(candidate, used)
+        origins.append(book_slug_origin(r.get("slug"), r.get("id13")))
+        candidates.append(candidate)
+        was_uniquified.append(final_slug != candidate)
+        out_slugs.append(final_slug)
+    df["_slug_origin"] = origins
+    df["_slug_candidate"] = candidates
+    df["_slug_was_uniquified"] = pd.Series(was_uniquified, index=df.index, dtype=object)
     df["slug"] = out_slugs
 
     # Excerpt

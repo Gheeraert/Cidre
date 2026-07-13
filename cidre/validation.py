@@ -17,6 +17,16 @@ from typing import Iterable, Optional
 import pandas as pd
 
 from .data_models import SiteConfig
+from .routes import (
+    ROOT_AUTOMATIC_TARGETS,
+    SECTION_INDEX_TARGETS,
+    book_public_path,
+    collection_public_path,
+    editorial_page_public_path,
+    editorial_page_slug,
+    is_generated_editorial_page_slug,
+    revue_public_path,
+)
 from .utils import (
     as_str,
     is_na,
@@ -34,19 +44,6 @@ SEVERITY_ALERT = "alert"
 SEVERITY_WARNING = "warning"
 
 VALIDATION_COLUMNS = ["level", "code", "entity", "identifier", "field", "message"]
-
-ROOT_AUTOMATIC_TARGETS = {
-    "index.html",
-    "catalogue.html",
-    "nouveautes.html",
-    "a-paraitre.html",
-    "actualites.html",
-}
-SECTION_INDEX_TARGETS = {
-    "collections/index.html",
-    "revues/index.html",
-}
-
 
 @dataclass(frozen=True)
 class ValidationIssue:
@@ -304,7 +301,7 @@ def _validate_books(books: pd.DataFrame, collections: pd.DataFrame, revues: pd.D
 
     issues.extend(_target_duplicates(
         (
-            ("book", _row_identifier(r, f"row-{idx + 2}"), f"livres/{as_str(r.get('slug'))}.html", "slug")
+            ("book", _row_identifier(r, f"row-{idx + 2}"), book_public_path(r.get("slug")), "slug")
             for idx, r in books.iterrows()
         ),
         "book",
@@ -452,11 +449,11 @@ def _published_pages(pages: Optional[pd.DataFrame]) -> pd.DataFrame:
         df["is_published"] = df["is_published"].apply(norm_bool)
         df = df[df["is_published"]].copy()
 
-    slugs = df["slug"].apply(lambda v: slugify(as_str(v)) if as_str(v) else "") \
+    slugs = df["slug"].apply(editorial_page_slug) \
         if "slug" in df.columns else pd.Series([""] * len(df), index=df.index)
     df = df[slugs.astype(str).str.strip().ne("")].copy()
     df["_validation_slug"] = slugs.loc[df.index]
-    df = df[~df["_validation_slug"].isin({"actualites", "actus"})].copy()
+    df = df[df["_validation_slug"].apply(is_generated_editorial_page_slug)].copy()
     return df
 
 
@@ -468,7 +465,7 @@ def _validate_pages(pages: pd.DataFrame) -> list[ValidationIssue]:
     rows = []
     for idx, r in df.iterrows():
         slug = as_str(r.get("_validation_slug"))
-        rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), f"{slug}.html", "slug"))
+        rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), editorial_page_public_path(slug), "slug"))
     issues.extend(_target_duplicates(rows, "page"))
     return issues
 
@@ -481,8 +478,7 @@ def _validate_collections(collections: pd.DataFrame) -> list[ValidationIssue]:
     rows = []
     for idx, r in active.iterrows():
         ident = as_str(r.get("collection_id")) or as_str(r.get("slug")) or f"row-{idx + 2}"
-        target = slugify(as_str(r.get("slug")) or as_str(r.get("collection_id")))
-        rows.append(("collection", ident, f"collections/{target}.html", "slug"))
+        rows.append(("collection", ident, collection_public_path(r.get("slug"), r.get("collection_id")), "slug"))
     issues.extend(_target_duplicates(rows, "collection"))
     return issues
 
@@ -495,8 +491,7 @@ def _validate_revues(revues: pd.DataFrame) -> list[ValidationIssue]:
     rows = []
     for idx, r in active.iterrows():
         ident = as_str(r.get("journal_id")) or as_str(r.get("slug")) or f"row-{idx + 2}"
-        target = slugify(as_str(r.get("slug")) or as_str(r.get("title")) or as_str(r.get("journal_id")))
-        rows.append(("revue", ident, f"revues/{target}.html", "slug"))
+        rows.append(("revue", ident, revue_public_path(r.get("slug"), r.get("title"), r.get("journal_id")), "slug"))
     issues.extend(_target_duplicates(rows, "revue"))
     return issues
 
@@ -512,23 +507,23 @@ def _validate_output_targets(pages: pd.DataFrame, collections: pd.DataFrame,
     if not published_pages.empty:
         for idx, r in published_pages.iterrows():
             slug = as_str(r.get("_validation_slug"))
-            rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), f"{slug}.html", "slug"))
+            rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), editorial_page_public_path(slug), "slug"))
 
     active_collections = _active_df(collections)
     if not active_collections.empty:
         for idx, r in active_collections.iterrows():
             ident = as_str(r.get("collection_id")) or as_str(r.get("slug")) or f"row-{idx + 2}"
-            target = slugify(as_str(r.get("slug")) or as_str(r.get("collection_id")))
-            if target:
-                rows.append(("collection", ident, f"collections/{target}.html", "slug"))
+            target = collection_public_path(r.get("slug"), r.get("collection_id"))
+            if target != "collections/.html":
+                rows.append(("collection", ident, target, "slug"))
 
     active_revues = _active_df(revues)
     if not active_revues.empty:
         for idx, r in active_revues.iterrows():
             ident = as_str(r.get("journal_id")) or as_str(r.get("slug")) or f"row-{idx + 2}"
-            target = slugify(as_str(r.get("slug")) or as_str(r.get("title")) or as_str(r.get("journal_id")))
+            target = revue_public_path(r.get("slug"), r.get("title"), r.get("journal_id"))
             if target:
-                rows.append(("revue", ident, f"revues/{target}.html", "slug"))
+                rows.append(("revue", ident, target, "slug"))
 
     return _target_duplicates(rows, "site")
 

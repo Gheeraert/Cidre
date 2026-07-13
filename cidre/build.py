@@ -19,6 +19,11 @@ from .excel_data import render_social_strip, resolve_social_icon_source
 from .html_templates import (
     book_order_block, book_retailers_block, order_pdf_rel, page_shell,
 )
+from .routes import (
+    book_href, book_public_path, collection_href, collection_public_slug,
+    editorial_page_public_path, editorial_page_slug, is_generated_editorial_page_slug,
+    revue_href, revue_public_slug,
+)
 from .utils import (
     as_str, clean_json_value, e, fmt_display_date, md_to_html, norm_bool,
     render_contacts_block, resolve_asset_source, slugify, toc_to_html,
@@ -218,7 +223,7 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
 <div class="card">
   {cover_html}
   <div class="meta">
-    <a href="{rel_prefix}/livres/{e(r.get('slug'))}.html"><strong>{e(r.get('titre_norm'))}</strong></a>
+    <a href="{e(book_href(r.get('slug'), rel_prefix))}"><strong>{e(r.get('titre_norm'))}</strong></a>
     {subtitle_html}
     {credit_html}
     {badge_html}
@@ -414,7 +419,7 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
                 rslug = revue_slugs[collection_id]
                 if rslug:
                     badges.append(
-                        f"<a class='badge' href='../revues/{e(rslug)}.html'>"
+                        f"<a class='badge' href='{e(revue_href(rslug, rel_prefix='..'))}'>"
                         f"{e(collection)}</a>"
                     )
                 else:
@@ -425,7 +430,7 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
                 cslug = collection_slugs.get(collection_id)
                 if cslug:
                     badges.append(
-                        f"<a class='badge' href='../collections/{e(cslug)}.html'>"
+                        f"<a class='badge' href='{e(collection_href(cslug, rel_prefix='..'))}'>"
                         f"{e(collection)}</a>"
                     )
                 else:
@@ -435,7 +440,7 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
             else:
                 # appel historique sans mapping : lien fondé sur l'identifiant
                 badges.append(
-                    f"<a class='badge' href='../collections/{e(collection_id)}.html'>"
+                    f"<a class='badge' href='{e(collection_href(collection_id, rel_prefix='..'))}'>"
                     f"{e(collection)}</a>"
                 )
         elif collection:
@@ -495,7 +500,7 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
 {desc_html}
 {toc_html}
 """
-        write_file(livres_dir / f"{as_str(r.get('slug'))}.html",
+        write_file(out_dir / book_public_path(r.get("slug")),
                    page_shell(cfg, f"{cfg.site_title} — {title}", "catalogue", body, ".."))
 
 
@@ -523,7 +528,8 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
 
     lis = []
     for _, c in collections.iterrows():
-        lis.append(f'<li><a href="./{e(c.get("slug") or c.get("collection_id"))}.html">{e(c.get("name"))}</a></li>')
+        public_slug = collection_public_slug(c.get("slug"), c.get("collection_id"))
+        lis.append(f'<li><a href="./{e(public_slug)}.html">{e(c.get("name"))}</a></li>')
     body = f"""
 <h2>{e(cfg.menu_label_collections)}</h2>
 <p class="small">Nos collections.</p>
@@ -593,7 +599,7 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         <h3>Ouvrages rattachés</h3>
         {cards_html}
         """
-        slug = as_str(c.get("slug") or cid)
+        slug = collection_public_slug(c.get("slug"), cid)
         write_file(base / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {name}", "collections", body, ".."))
 
 def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out_dir: Path) -> None:
@@ -613,7 +619,7 @@ def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out
     df["title"] = df.get("title", "").apply(as_str)
     df["journal_id"] = df.get("journal_id", "").apply(as_str)
     df["slug"] = df.apply(
-        lambda r: slugify(as_str(r.get("slug")) or as_str(r.get("title")) or as_str(r.get("journal_id")) or "revue"),
+        lambda r: revue_public_slug(r.get("slug"), r.get("title"), r.get("journal_id")),
         axis=1
     )
     df["order"] = pd.to_numeric(df.get("order"), errors="coerce")
@@ -677,7 +683,7 @@ def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out
 <h3>Numéros parus</h3>
 {cards_html}
 """
-        write_file(base / f"{as_str(r.get('slug'))}.html",
+        write_file(base / f"{revue_public_slug(r.get('slug'), r.get('title'), r.get('journal_id'))}.html",
                    page_shell(cfg, f"{cfg.site_title} — {title}", "revues", body, ".."))
 
 
@@ -732,10 +738,8 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, ou
         df = df[df["is_published"]].copy()
 
     for _, r in df.iterrows():
-        slug = slugify(as_str(r.get("slug"))) if as_str(r.get("slug")) else ""
-        if not slug:
-            continue
-        if slug in {"actualites", "actus"}:
+        slug = editorial_page_slug(r.get("slug"))
+        if not is_generated_editorial_page_slug(slug):
             continue
         title = as_str(r.get("title") or slug)
         content = md_to_html(r.get("content_md") or "")
@@ -757,12 +761,12 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, ou
         if slug in {"commander", "commandes"}:
             body += "<hr>\n" + render_contacts_block(contacts, heading="Nous contacter")
 
-        write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
+        write_file(out_dir / editorial_page_public_path(slug), page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
 
     for slug, title, key in [("open-access", cfg.menu_label_open_access, "open_access")]:
-        if not (out_dir / f"{slug}.html").exists():
+        if not (out_dir / editorial_page_public_path(slug)).exists():
             body = f"<h2>{e(title)}</h2><p class='small'>Page non renseignée dans l’onglet PAGES.</p>"
-            write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
+            write_file(out_dir / editorial_page_public_path(slug), page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
 
 def build_validation_report(books: pd.DataFrame, out_dir: Path) -> None:
     """Facade historique : ecrit validation.csv depuis le moteur structure."""

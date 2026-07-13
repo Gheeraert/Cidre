@@ -29,7 +29,8 @@ from .excel_data import (
 )
 from .ftp_publish import publish_ftp
 from .output_transaction import staged_output
-from .utils import as_str, compute_available_covers, months_ago, norm_bool, slugify
+from .routes import GENERATED_ROOT_HTML, editorial_page_public_path, editorial_page_slug, is_generated_editorial_page_slug
+from .utils import compute_available_covers, months_ago, norm_bool
 from .validation import (
     ValidationAlertError, ValidationBlockingError,
     format_validation_summary, validate_site_data, write_validation_csv,
@@ -127,28 +128,15 @@ def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataF
             shutil.rmtree(p)
 
     # 2) Purger les HTML générés à la racine (on les réécrit ensuite)
-    root_html = {
-        "index.html",
-        "catalogue.html",
-        "nouveautes.html",
-        "a-paraitre.html",
-        "actualites.html",
-        "contact.html",
-        "open-access.html",
-        "open_access.html",
-        "commander.html",
-        "commandes.html",
-        "presentation.html",
-        "soumettre-un-manuscrit.html",
-    }
+    root_html = set(GENERATED_ROOT_HTML)
 
     # + toutes les pages déclarées dans PAGES (sauf actualites/actus gérées ailleurs)
     if pages is not None and not pages.empty:
         for _, rr in pages.iterrows():
-            slug = slugify(as_str(rr.get("slug"))) if as_str(rr.get("slug")) else ""
-            if not slug or slug in {"actualites", "actus"}:
+            slug = editorial_page_slug(rr.get("slug"))
+            if not is_generated_editorial_page_slug(slug):
                 continue
-            root_html.add(f"{slug}.html")
+            root_html.add(editorial_page_public_path(slug))
 
     for fn in root_html:
         fp = out_dir / fn
