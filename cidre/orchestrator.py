@@ -28,6 +28,7 @@ from .excel_data import (
     load_contacts, load_pages, load_revues,
 )
 from .ftp_publish import publish_ftp
+from .output_transaction import staged_output
 from .utils import as_str, compute_available_covers, months_ago, norm_bool, slugify
 from .validation import (
     ValidationAlertError, ValidationBlockingError,
@@ -85,10 +86,38 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
         write_validation_csv(report, out_dir / "validation.csv")
         return report
 
+    with staged_output(out_dir) as tx:
+        _generate_site_into(
+            target_dir=tx.staging_dir,
+            excel_path=excel_path,
+            cfg=cfg,
+            books=books,
+            pages=pages,
+            collections=collections,
+            revues=revues,
+            contacts=contacts,
+            actualites=actualites,
+            covers_dir=covers_dir,
+            report=report,
+        )
+        tx.commit()
+
+    if publish:
+        publish_ftp(cfg, out_dir, progress_cb=progress_cb)
+
+    return report
+
+
+def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataFrame,
+                        pages: pd.DataFrame, collections: pd.DataFrame,
+                        revues: pd.DataFrame, contacts: pd.DataFrame,
+                        actualites: pd.DataFrame, covers_dir: Optional[Path],
+                        report) -> None:
     # output dir reset (sélectif) :
     # - on conserve dist/assets/* (sauf les JSON régénérés)
     # - on conserve dist/covers/*
     # - on purge seulement les dossiers/pages générés
+    out_dir = target_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Purger les dossiers générés (évite les pages orphelines)
@@ -193,11 +222,6 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
                      collection_slugs=build_collection_slug_map(collections, books))
     build_collections(cfg, books, collections, out_dir)
     build_revues(cfg, books, revues, out_dir)
-
-    if publish:
-        publish_ftp(cfg, out_dir, progress_cb=progress_cb)
-
-    return report
 
 
 def make_arg_parser() -> argparse.ArgumentParser:
