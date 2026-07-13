@@ -15,8 +15,22 @@ import pandas as pd
 from ftplib import FTP, FTP_TLS, error_perm
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
-from build_site import build_site, load_config, publish_ftp, detect_books_sheet
+from build_site import (
+    build_site, load_config, publish_ftp, detect_books_sheet,
+    load_books, load_pages, load_collections, load_revues, load_contacts,
+    load_actualites, format_validation_summary, validate_site_data,
+    write_validation_csv,
+)
 from export_onix_py import export_onix_from_excel
+
+
+def should_continue_after_validation(report, confirm_alerts) -> bool:
+    """Decision pure pour la GUI : blocages = stop, alertes = confirmation."""
+    if report.has_blocking_issues:
+        return False
+    if report.has_alerts:
+        return bool(confirm_alerts(report))
+    return True
 
 class App(tk.Tk):
     def __init__(self):
@@ -499,6 +513,58 @@ class App(tk.Tk):
         except Exception:
             new_months = 6
 
+        try:
+            wb = pd.ExcelFile(excel)
+            cfg_validation = load_config(wb, "CONFIG")
+            books_sheet = detect_books_sheet(wb, getattr(cfg_validation, "books_sheet", "") or "")
+            validation_report = validate_site_data(
+                books=load_books(wb, books_sheet),
+                cfg=cfg_validation,
+                pages=load_pages(wb, cfg_validation.pages_sheet),
+                collections=load_collections(wb, cfg_validation.collections_sheet),
+                revues=load_revues(wb, cfg_validation.revues_sheet),
+                contacts=load_contacts(wb, cfg_validation.contacts_sheet),
+                actualites=load_actualites(wb),
+                excel_path=excel,
+                out_dir=out_dir,
+                covers_dir=covers,
+            )
+        except Exception as e:
+            messagebox.showerror("Validation impossible", f"La validation a échoué :\n\n{e}")
+            return
+
+        self.log(format_validation_summary(validation_report))
+
+        def confirm_alerts(report):
+            extrait = "\n".join(
+                f"- {i.code} : {i.message}" for i in report.alerts[:8]
+            )
+            if len(report.alerts) > 8:
+                extrait += f"\n- ... {len(report.alerts) - 8} autre(s) alerte(s)"
+            return messagebox.askyesno(
+                "Alertes de validation",
+                "CIDRE a détecté des alertes fortes mais contournables.\n\n"
+                f"{extrait}\n\n"
+                "Voulez-vous générer malgré ces alertes ?"
+            )
+
+        if validation_report.has_blocking_issues:
+            extrait = "\n".join(
+                f"- {i.code} : {i.message}" for i in validation_report.blocking_issues[:8]
+            )
+            messagebox.showerror(
+                "Blocage de validation",
+                "La génération est interrompue avant toute modification du dossier de sortie.\n\n"
+                f"{extrait}"
+            )
+            return
+
+        if not should_continue_after_validation(validation_report, confirm_alerts):
+            out_dir.mkdir(parents=True, exist_ok=True)
+            write_validation_csv(validation_report, out_dir / "validation.csv")
+            self.log(f"Validation interrompue : rapport écrit dans {out_dir / 'validation.csv'}")
+            return
+
         do_publish_ftp = bool(self.var_publish_ftp.get())
         export_onix = bool(self.var_export_onix.get())
 
@@ -539,6 +605,7 @@ class App(tk.Tk):
                     # on publie plus tard
                     # publish=do_publish_ftp,
                     publish=False,
+                    force_alerts=True,
                     progress_cb=progress_cb,
                 )
                 self.after(0, lambda: self.log("✅ Terminé."))

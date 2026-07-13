@@ -17,7 +17,7 @@ from . import utils
 from .build import (
     build_book_pages, build_catalogue_json, build_catalogue_page,
     build_collections, build_home, build_new_titles,
-    build_pages, build_revues, build_upcoming_page, build_validation_report,
+    build_pages, build_revues, build_upcoming_page,
     copy_covers, copy_declared_assets,
 )
 from .data_models import load_config
@@ -29,6 +29,10 @@ from .excel_data import (
 )
 from .ftp_publish import publish_ftp
 from .utils import as_str, compute_available_covers, months_ago, norm_bool, slugify
+from .validation import (
+    ValidationAlertError, ValidationBlockingError,
+    format_validation_summary, validate_site_data, write_validation_csv,
+)
 
 # -------------------------
 # Orchestrator
@@ -37,7 +41,8 @@ from .utils import as_str, compute_available_covers, months_ago, norm_bool, slug
 def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
                validate_only: bool = False, new_months: Optional[int] = None,
                progress_cb=None,
-               publish: bool = False) -> None:
+               publish: bool = False,
+               force_alerts: bool = True):
     wb = pd.ExcelFile(excel_path)
 
     cfg = load_config(wb, "CONFIG")
@@ -52,6 +57,33 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     revues = load_revues(wb, cfg.revues_sheet)
     contacts = load_contacts(wb, cfg.contacts_sheet)
     actualites = load_actualites(wb)
+
+    report = validate_site_data(
+        books=books,
+        cfg=cfg,
+        pages=pages,
+        collections=collections,
+        revues=revues,
+        contacts=contacts,
+        actualites=actualites,
+        excel_path=excel_path,
+        out_dir=out_dir,
+        covers_dir=covers_dir,
+    )
+    if report.has_blocking_issues:
+        raise ValidationBlockingError(report)
+
+    if report.has_alerts and not force_alerts:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        write_validation_csv(report, out_dir / "validation.csv")
+        raise ValidationAlertError(report)
+
+    if validate_only:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        utils.AVAILABLE_COVERS = compute_available_covers(out_dir)
+        build_catalogue_json(books, out_dir)
+        write_validation_csv(report, out_dir / "validation.csv")
+        return report
 
     # output dir reset (sélectif) :
     # - on conserve dist/assets/* (sauf les JSON régénérés)
@@ -131,9 +163,7 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     build_actualites_page(cfg, out_dir)
 
     # validation report always produced
-    build_validation_report(books, out_dir)
-    if validate_only:
-        return
+    write_validation_csv(report, out_dir / "validation.csv")
 
     today = date.today()
     cutoff = months_ago(today, cfg.new_months)
@@ -167,6 +197,8 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     if publish:
         publish_ftp(cfg, out_dir, progress_cb=progress_cb)
 
+    return report
+
 
 def make_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
@@ -184,6 +216,8 @@ def make_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out", default="dist", help="Dossier de sortie")
     ap.add_argument("--covers-dir", default="", help="Dossier contenant les couvertures (images)")
     ap.add_argument("--validate-only", action="store_true", help="Ne génère que validation.csv + catalogue.json")
+    ap.add_argument("--force", action="store_true",
+                    help="Continuer la génération malgré les alertes de validation contournables")
     ap.add_argument("--new-months", type=int, default=None,
                     help="Fenêtre (en mois) pour les nouveautés (par défaut : valeur CONFIG.new_months)")
 
@@ -201,19 +235,32 @@ def main():
         sys.exit(2)
 
     out_dir = Path(args.out).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     covers_dir = Path(args.covers_dir).expanduser().resolve() if args.covers_dir else None
 
     # 1) build du site (sans publish ici)
-    build_site(
-        excel_path=excel_path,
-        out_dir=out_dir,
-        covers_dir=covers_dir,
-        validate_only=args.validate_only,
-        new_months=args.new_months,
-        publish=False,  # IMPORTANT
-    )
+    try:
+        validation_report = build_site(
+            excel_path=excel_path,
+            out_dir=out_dir,
+            covers_dir=covers_dir,
+            validate_only=args.validate_only,
+            new_months=args.new_months,
+            publish=False,  # IMPORTANT
+            force_alerts=args.force,
+        )
+        print(format_validation_summary(validation_report))
+    except ValidationBlockingError as exc:
+        print(format_validation_summary(exc.report), file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print("Génération interrompue : blocage technique non contournable.", file=sys.stderr)
+        sys.exit(3)
+    except ValidationAlertError as exc:
+        print(format_validation_summary(exc.report), file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(f"Rapport écrit : {out_dir / 'validation.csv'}", file=sys.stderr)
+        print("Relancez avec --force pour générer malgré ces alertes.", file=sys.stderr)
+        sys.exit(4)
 
     # 2) export ONIX (ICI)
     if args.export_onix:

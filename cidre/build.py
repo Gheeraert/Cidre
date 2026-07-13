@@ -24,6 +24,7 @@ from .utils import (
     render_contacts_block, resolve_asset_source, slugify, toc_to_html,
     write_file,
 )
+from .validation import validate_site_data, write_validation_csv
 
 # -------------------------
 # Build site
@@ -764,29 +765,8 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, ou
             write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
 
 def build_validation_report(books: pd.DataFrame, out_dir: Path) -> None:
-    problems = []
-    for _, r in books.iterrows():
-        issues = []
-        if not r.get("id13"):
-            issues.append("ISBN/GTIN manquant")
-        if not as_str(r.get("titre_norm")):
-            issues.append("Titre manquant")
-        cover = as_str(r.get("cover_file"))
-        if not cover:
-            issues.append("Couverture manquante (cover_file)")
-        else:
-            cov = Path(cover.replace("\\", "/")).name
-            if utils.AVAILABLE_COVERS and cov not in utils.AVAILABLE_COVERS:
-                issues.append("Couverture introuvable dans dist/covers (nom incohérent ?)")
-        if not as_str(r.get("Description courte")) and not as_str(r.get("Description longue")):
-            issues.append("Résumé manquant")
-        if issues:
-            problems.append({
-                "slug": as_str(r.get("slug")),
-                "id13": as_str(r.get("id13")),
-                "titre": as_str(r.get("titre_norm")),
-                "issues": "; ".join(issues)
-            })
-    pd.DataFrame(problems).to_csv(out_dir / "validation.csv", index=False, encoding="utf-8")
+    """Facade historique : ecrit validation.csv depuis le moteur structure."""
+    report = validate_site_data(books=books, out_dir=out_dir)
+    write_validation_csv(report, out_dir / "validation.csv")
 
 
