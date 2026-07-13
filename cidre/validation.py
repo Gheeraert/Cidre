@@ -279,8 +279,7 @@ def _validate_books(books: pd.DataFrame, collections: pd.DataFrame, revues: pd.D
     if books is None or books.empty:
         return issues
 
-    slug_column = "_source_slug" if "_source_slug" in books.columns else "slug"
-    for dup in sorted(_duplicated_nonempty(books, slug_column)):
+    for dup in sorted(_duplicated_nonempty(books, "slug")):
         issues.append(_issue(
             SEVERITY_ALERT,
             "BOOK_SLUG_DUPLICATE",
@@ -298,6 +297,19 @@ def _validate_books(books: pd.DataFrame, collections: pd.DataFrame, revues: pd.D
             "id13",
             "Plusieurs livres portent le meme ISBN/GTIN.",
         ))
+
+    if "_source_slug" in books.columns:
+        for idx, r in books.iterrows():
+            if not as_str(r.get("_source_slug")):
+                issues.append(_issue(
+                    SEVERITY_WARNING,
+                    "BOOK_SLUG_GENERATED",
+                    "book",
+                    _row_identifier(r, f"row-{idx + 2}"),
+                    "slug",
+                    "Slug absent : l'URL est generee depuis le titre et eventuellement l'ISBN. "
+                    "Il est recommande de renseigner le slug dans l'Excel.",
+                ))
 
     issues.extend(_target_duplicates(
         (

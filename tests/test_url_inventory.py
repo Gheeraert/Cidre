@@ -32,7 +32,8 @@ def _book(isbn, slug, title, collection="Essais", collection_id="col-essais"):
     ]
 
 
-def _workbook(path: Path, pages_rows=None, revues_rows=None, actualites_rows=None, include_pages=True) -> Path:
+def _workbook(path: Path, pages_rows=None, revues_rows=None, actualites_rows=None,
+              include_pages=True, book_rows=None) -> Path:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "CONFIG"
@@ -49,14 +50,19 @@ def _workbook(path: Path, pages_rows=None, revues_rows=None, actualites_rows=Non
 
     books = wb.create_sheet("CATALOGUE")
     books.append(BOOK_HEADERS)
-    books.append(_book("9782877750001", "mon-livre-2", "Slug deja suffixe"))
-    books.append(_book("9782877750002", "", "Fallback ISBN"))
-    books.append(_book("9782877750003", "meme-slug", "Premier doublon"))
-    books.append(_book("9782877750004", "meme-slug", "Second doublon"))
-    books.append(_book("", "", "Sans ISBN"))
-    books.append(_book("", "", "Sans ISBN"))
-    books.append(_book("9782877750005", "livre-actu", "Livre actu"))
-    books.append(_book("9782877750006", "numero-revue", "Numero revue", "Revue test", "revue-test"))
+    if book_rows is None:
+        book_rows = [
+            _book("9782877750001", "mon-livre-2", "Slug deja suffixe"),
+            _book("9782877750002", "", "Fallback ISBN"),
+            _book("9782877750003", "meme-slug", "Premier doublon"),
+            _book("9782877750004", "meme-slug", "Second doublon"),
+            _book("", "", "Sans ISBN"),
+            _book("", "", "Sans ISBN"),
+            _book("9782877750005", "livre-actu", "Livre actu"),
+            _book("9782877750006", "numero-revue", "Numero revue", "Revue test", "revue-test"),
+        ]
+    for row in book_rows:
+        books.append(row)
 
     if include_pages:
         pages = wb.create_sheet("PAGES")
@@ -158,8 +164,8 @@ def test_provenance_doublon_explicite(tmp_path):
     assert first["_slug_was_uniquified"] is False
     assert first["_slug_origin"] == "explicit"
     assert second["_slug_candidate"] == "meme-slug"
-    assert second["slug"] == "meme-slug-2"
-    assert second["_slug_was_uniquified"] is True
+    assert second["slug"] == "meme-slug"
+    assert second["_slug_was_uniquified"] is False
     assert second["_slug_origin"] == "explicit"
 
 
@@ -176,12 +182,15 @@ def test_provenance_fallbacks(tmp_path):
     assert sans.iloc[0]["slug"] == "sans-isbn"
     assert sans.iloc[0]["_slug_was_uniquified"] is False
     assert sans.iloc[1]["_slug_candidate"] == "sans-isbn"
-    assert sans.iloc[1]["slug"] == "sans-isbn-2"
-    assert sans.iloc[1]["_slug_was_uniquified"] is True
+    assert sans.iloc[1]["slug"] == "sans-isbn"
+    assert sans.iloc[1]["_slug_was_uniquified"] is False
 
 
 def test_coherence_producteurs_consommateurs(tmp_path):
-    wb = _workbook(tmp_path / "site.xlsx")
+    wb = _workbook(tmp_path / "site.xlsx", book_rows=[
+        _book("9782877750005", "livre-actu", "Livre actu"),
+        _book("9782877750006", "numero-revue", "Numero revue", "Revue test", "revue-test"),
+    ])
     out = tmp_path / "dist"
     bs.build_site(wb, out, covers_dir=None, force_alerts=True)
 
@@ -233,8 +242,8 @@ def test_inventaire_csv(tmp_path):
     assert by_title["Slug deja suffixe"]["explicit_slug"] == "mon-livre-2"
     assert by_title["Slug deja suffixe"]["auto_uniquified"] == "False"
     assert by_title["Second doublon"]["slug_candidate"] == "meme-slug"
-    assert by_title["Second doublon"]["final_slug"] == "meme-slug-2"
-    assert by_title["Second doublon"]["auto_uniquified"] == "True"
+    assert by_title["Second doublon"]["final_slug"] == "meme-slug"
+    assert by_title["Second doublon"]["auto_uniquified"] == "False"
     assert by_title["Fallback ISBN"]["slug_origin"] == "fallback_title_isbn"
     assert by_title["Sans ISBN"]["slug_origin"] == "fallback_title"
     assert any(r["public_path"] == "livres/livre-actu.html" for r in rows)

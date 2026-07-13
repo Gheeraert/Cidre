@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .utils import as_str, ensure_unique_slug, norm_bool, slugify
@@ -33,6 +34,7 @@ GENERATED_ROOT_HTML = ROOT_AUTOMATIC_TARGETS | {
 }
 
 IGNORED_EDITORIAL_PAGE_SLUGS = {"actualites", "actus"}
+_BOOK_ROUTE_SAFE_RE = re.compile(r"[a-z0-9-]+")
 
 
 def book_slug_origin(explicit_slug: Any, id13: Any) -> str:
@@ -43,11 +45,20 @@ def book_slug_origin(explicit_slug: Any, id13: Any) -> str:
     return "fallback_title"
 
 
+def explicit_book_slug(explicit_slug: Any) -> str:
+    source_slug = as_str(explicit_slug)
+    if not source_slug:
+        return ""
+    if _BOOK_ROUTE_SAFE_RE.fullmatch(source_slug):
+        return source_slug
+    return slugify(source_slug)
+
+
 def book_slug_candidate(explicit_slug: Any, title: Any, id13: Any) -> str:
     """Slug livre avant unicisation, avec le meme fallback que load_books."""
     source_slug = as_str(explicit_slug)
     if source_slug:
-        return slugify(source_slug)
+        return explicit_book_slug(source_slug)
     base = slugify(as_str(title) or "ouvrage")
     norm_id13 = as_str(id13)
     if norm_id13:

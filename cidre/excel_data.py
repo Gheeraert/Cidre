@@ -16,11 +16,11 @@ from .html_templates import page_shell
 from .routes import (
     actualite_anchor_id, actualite_book_href, actualites_href,
     book_slug_candidate, book_slug_origin, collection_public_slug,
-    revue_public_slug,
+    explicit_book_slug, revue_public_slug,
 )
 from .utils import (
-    as_str, e, ensure_unique_slug, fmt_cm_guess, fmt_display_date, fmt_eur,
-    fmt_int, format_credit_line, html_to_text, is_na, md_to_html, norm_bool,
+    as_str, e, fmt_cm_guess, fmt_display_date, fmt_eur, fmt_int,
+    format_credit_line, html_to_text, is_na, md_to_html, norm_bool,
     normalize_editorial_columns, normalize_excel_text, normalize_external_url,
     normalize_id13, parse_pub_date, parse_year, resolve_asset_source,
     sanitize_actu_html, slugify, write_file,
@@ -660,8 +660,7 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df["pub_date"] = df["date_parution_norm"].apply(parse_pub_date)
 
     # Build slugs
-    df["_source_slug"] = df["slug"].apply(lambda x: slugify(as_str(x)) if as_str(x) else "")
-    used: set[str] = set()
+    df["_source_slug"] = df["slug"].apply(explicit_book_slug)
     out_slugs: List[str] = []
     origins: List[str] = []
     candidates: List[str] = []
@@ -669,10 +668,10 @@ def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     for _, r in df.iterrows():
         title = as_str(r.get("titre_norm") or r.get("Titre") or "ouvrage")
         candidate = book_slug_candidate(r.get("slug"), title, r.get("id13"))
-        final_slug = ensure_unique_slug(candidate, used)
+        final_slug = candidate
         origins.append(book_slug_origin(r.get("slug"), r.get("id13")))
         candidates.append(candidate)
-        was_uniquified.append(final_slug != candidate)
+        was_uniquified.append(False)
         out_slugs.append(final_slug)
     df["_slug_origin"] = origins
     df["_slug_candidate"] = candidates

@@ -10,6 +10,8 @@ sys.path.insert(0, str(ROOT))
 
 import build_site as bs
 import cidre.orchestrator as orchestrator
+from cidre.data_models import load_config
+from cidre.excel_data import detect_books_sheet, load_books
 from gui_tk import should_continue_after_validation
 
 
@@ -46,6 +48,24 @@ def _report(books, **kwargs):
 
 def _codes(report):
     return {i.code for i in report.issues}
+
+
+def _loaded_books(path: Path) -> pd.DataFrame:
+    with pd.ExcelFile(path) as wb:
+        cfg = load_config(wb, "CONFIG")
+        return load_books(wb, detect_books_sheet(wb, cfg.books_sheet))
+
+
+def _leftovers(out: Path) -> list[Path]:
+    return sorted(out.parent.glob(f".{out.name}.build-*")) + sorted(out.parent.glob(f".{out.name}.backup-*"))
+
+
+def _snapshot(path: Path) -> dict[str, bytes]:
+    return {
+        p.relative_to(path).as_posix(): p.read_bytes()
+        for p in sorted(path.rglob("*"))
+        if p.is_file()
+    }
 
 
 def test_donnees_valides_sans_blocage_ni_alerte(tmp_path):
@@ -216,7 +236,7 @@ def test_validate_only_meme_moteur_sans_html(tmp_path, monkeypatch):
     assert not (out / "index.html").exists()
 
 
-def test_slug_duplique_depuis_classeur_apres_unicisation(tmp_path, monkeypatch):
+def test_slug_duplique_depuis_classeur_apres_unicisation(tmp_path, monkeypatch, capsys):
     wb = _workbook(
         tmp_path / "dup-slug.xlsx",
         book_rows=[
@@ -228,10 +248,121 @@ def test_slug_duplique_depuis_classeur_apres_unicisation(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["build_site.py", "--excel", str(wb), "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         bs.main()
-    assert exc.value.code == 4
-    csv = (out / "validation.csv").read_text(encoding="utf-8")
-    assert "BOOK_SLUG_DUPLICATE" in csv
-    assert "DUPLICATE_OUTPUT_TARGET" not in csv
+    assert exc.value.code == 3
+    err = capsys.readouterr().err
+    assert "BOOK_SLUG_DUPLICATE" in err or "1 alerte" in err
+    assert "DUPLICATE_OUTPUT_TARGET" in err
+    assert not (out / "index.html").exists()
+
+
+def test_livres_meme_slug_explicite_conservent_le_meme_slug_et_bloquent(tmp_path):
+    wb = _workbook(
+        tmp_path / "dup-books.xlsx",
+        book_rows=[
+            {"slug": "meme-slug", "id13": "9782877750001", "titre_norm": "Livre A"},
+            {"slug": "meme-slug", "id13": "9782877750002", "titre_norm": "Livre B"},
+        ],
+    )
+    books = _loaded_books(wb)
+    assert books["_slug_candidate"].tolist() == ["meme-slug", "meme-slug"]
+    assert books["slug"].tolist() == ["meme-slug", "meme-slug"]
+    assert books["_slug_was_uniquified"].tolist() == [False, False]
+    report = bs.validate_site_data(books=books)
+    assert "DUPLICATE_OUTPUT_TARGET" in _codes(report)
+    assert any(i.severity == "blocking" for i in report.issues if i.code == "DUPLICATE_OUTPUT_TARGET")
+
+
+def test_reordonnancement_livres_doublons_reste_bloquant_sans_suffixe(tmp_path):
+    rows_ab = [
+        {"slug": "meme-slug", "id13": "9782877750001", "titre_norm": "Livre A"},
+        {"slug": "meme-slug", "id13": "9782877750002", "titre_norm": "Livre B"},
+    ]
+    rows_ba = list(reversed(rows_ab))
+    for name, rows in [("ab.xlsx", rows_ab), ("ba.xlsx", rows_ba)]:
+        wb = _workbook(tmp_path / name, book_rows=rows)
+        books = _loaded_books(wb)
+        assert books["_slug_candidate"].tolist() == ["meme-slug", "meme-slug"]
+        assert books["slug"].tolist() == ["meme-slug", "meme-slug"]
+        with pytest.raises(bs.ValidationBlockingError):
+            bs.build_site(wb, tmp_path / f"dist-{name}", covers_dir=None, force_alerts=True)
+
+
+def test_livre_inactif_meme_slug_ne_cree_pas_de_collision(tmp_path):
+    wb = _workbook(
+        tmp_path / "inactive.xlsx",
+        book_rows=[
+            {"slug": "meme-slug", "id13": "9782877750001", "titre_norm": "Livre actif", "active_site": 1},
+            {"slug": "meme-slug", "id13": "9782877750002", "titre_norm": "Livre inactif", "active_site": 0},
+        ],
+    )
+    books = _loaded_books(wb)
+    assert books["titre_norm"].tolist() == ["Livre actif"]
+    report = bs.validate_site_data(books=books)
+    assert "DUPLICATE_OUTPUT_TARGET" not in _codes(report)
+
+
+def test_fallbacks_livres_conserves_et_collision_bloquante(tmp_path):
+    wb = _workbook(
+        tmp_path / "fallbacks.xlsx",
+        book_rows=[
+            {"slug": "", "id13": "9782877750001", "titre_norm": "Titre commun"},
+            {"slug": "", "id13": "9782877750002", "titre_norm": "Titre commun"},
+            {"slug": "", "id13": "", "titre_norm": "Sans ISBN"},
+            {"slug": "", "id13": "", "titre_norm": "Sans ISBN"},
+        ],
+    )
+    books = _loaded_books(wb)
+    assert books["slug"].tolist() == [
+        "titre-commun-9782877750001",
+        "titre-commun-9782877750002",
+        "sans-isbn",
+        "sans-isbn",
+    ]
+    assert books["_slug_candidate"].tolist() == books["slug"].tolist()
+    assert books["_slug_was_uniquified"].tolist() == [False, False, False, False]
+    report = bs.validate_site_data(books=books)
+    assert "DUPLICATE_OUTPUT_TARGET" in _codes(report)
+
+
+def test_validation_collision_livres_bloque_transaction_et_ftp(tmp_path, monkeypatch):
+    wb = _workbook(
+        tmp_path / "dup-tx.xlsx",
+        book_rows=[
+            {"slug": "meme-slug", "id13": "9782877750001", "titre_norm": "Livre A"},
+            {"slug": "meme-slug", "id13": "9782877750002", "titre_norm": "Livre B"},
+        ],
+    )
+    out = tmp_path / "dist"
+    (out / "livres").mkdir(parents=True)
+    (out / "livres" / "ancien.html").write_text("ancien", encoding="utf-8")
+    before = _snapshot(out)
+    ftp_calls = []
+    monkeypatch.setattr(orchestrator, "publish_ftp", lambda *a, **k: ftp_calls.append((a, k)))
+
+    with pytest.raises(bs.ValidationBlockingError):
+        bs.build_site(wb, out, covers_dir=None, force_alerts=True, publish=True)
+
+    assert _snapshot(out) == before
+    assert ftp_calls == []
+    assert _leftovers(out) == []
+
+
+def test_slug_genere_avertissement_sans_blocage(tmp_path):
+    wb = _workbook(
+        tmp_path / "generated-slug.xlsx",
+        book_rows=[
+            {"slug": "", "id13": "9782877750001", "titre_norm": "Titre sans slug"},
+        ],
+    )
+    books = _loaded_books(wb)
+    report = bs.validate_site_data(books=books)
+    issues = [i for i in report.issues if i.code == "BOOK_SLUG_GENERATED"]
+    assert len(issues) == 1
+    assert issues[0].severity == "warning"
+    assert not report.has_blocking_issues
+    out = tmp_path / "dist"
+    bs.build_site(wb, out, covers_dir=None, force_alerts=False)
+    assert (out / "livres" / "titre-sans-slug-9782877750001.html").exists()
 
 
 def test_pages_meme_slug_et_identifiant_collision_blocage():

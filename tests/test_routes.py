@@ -17,6 +17,8 @@ def test_book_slug_candidates():
     assert routes.book_slug_origin("", "9782877750001") == "fallback_title_isbn"
     assert routes.book_slug_candidate("", "Mon Livre", "") == "mon-livre"
     assert routes.book_slug_origin("", "") == "fallback_title"
+    long_slug = "a" * 80 + "-2"
+    assert routes.book_slug_candidate(long_slug, "Titre ignore", "") == long_slug
 
 
 def test_public_paths_are_posix():
