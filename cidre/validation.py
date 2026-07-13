@@ -41,7 +41,6 @@ ROOT_AUTOMATIC_TARGETS = {
     "nouveautes.html",
     "a-paraitre.html",
     "actualites.html",
-    "contact.html",
 }
 SECTION_INDEX_TARGETS = {
     "collections/index.html",
@@ -169,11 +168,14 @@ def _active_df(df: Optional[pd.DataFrame], active_col: str = "is_active") -> pd.
 def _target_duplicates(items: Iterable[tuple[str, str, str, str]],
                        entity: str) -> list[ValidationIssue]:
     seen: dict[str, tuple[str, str, str]] = {}
+    reported: set[str] = set()
     issues: list[ValidationIssue] = []
     for item_entity, identifier, target, field in items:
         if not target:
             continue
         if target in seen:
+            if target in reported:
+                continue
             prev_entity, prev_identifier, _prev_field = seen[target]
             issues.append(_issue(
                 SEVERITY_BLOCKING,
@@ -184,6 +186,7 @@ def _target_duplicates(items: Iterable[tuple[str, str, str, str]],
                 "Plusieurs entites visent le meme fichier de sortie : "
                 f"{target} ({prev_entity}:{prev_identifier} et {item_entity}:{identifier}).",
             ))
+            reported.add(target)
         else:
             seen[target] = (item_entity, identifier, field)
     return issues
@@ -224,9 +227,6 @@ def validate_site_data(
 
     issues.extend(_validate_output_dir(out_dir))
     issues.extend(_validate_books(books, collections, revues, covers_dir, out_dir))
-    issues.extend(_validate_pages(pages))
-    issues.extend(_validate_collections(collections))
-    issues.extend(_validate_revues(revues))
     issues.extend(_validate_output_targets(pages, collections, revues))
     issues.extend(_validate_actualites(actualites))
     issues.extend(_validate_declared_assets(cfg, excel_path))
@@ -248,8 +248,23 @@ def _validate_output_dir(out_dir: Optional[Path]) -> list[ValidationIssue]:
             "Le chemin de sortie existe mais n'est pas un dossier.",
         ))
         return issues
-    parent = out_dir if out_dir.exists() else out_dir.parent
-    if parent.exists() and not os.access(parent, os.W_OK):
+
+    existing = out_dir
+    while not existing.exists() and existing.parent != existing:
+        existing = existing.parent
+
+    if existing.exists() and not existing.is_dir():
+        issues.append(_issue(
+            SEVERITY_BLOCKING,
+            "OUTPUT_PARENT_NOT_DIRECTORY",
+            "site",
+            as_str(out_dir),
+            "out_dir",
+            "Un ancetre du chemin de sortie existe mais n'est pas un dossier.",
+        ))
+        return issues
+
+    if existing.exists() and not os.access(existing, os.W_OK):
         issues.append(_issue(
             SEVERITY_BLOCKING,
             "OUTPUT_PARENT_NOT_WRITABLE",
@@ -429,15 +444,31 @@ def _looks_like_revue(row: pd.Series) -> bool:
     return "revue" in text or "n°" in text or "numero" in text or "numéro" in text
 
 
+def _published_pages(pages: Optional[pd.DataFrame]) -> pd.DataFrame:
+    if pages is None or pages.empty:
+        return pd.DataFrame()
+    df = pages.copy()
+    if "is_published" in df.columns:
+        df["is_published"] = df["is_published"].apply(norm_bool)
+        df = df[df["is_published"]].copy()
+
+    slugs = df["slug"].apply(lambda v: slugify(as_str(v)) if as_str(v) else "") \
+        if "slug" in df.columns else pd.Series([""] * len(df), index=df.index)
+    df = df[slugs.astype(str).str.strip().ne("")].copy()
+    df["_validation_slug"] = slugs.loc[df.index]
+    df = df[~df["_validation_slug"].isin({"actualites", "actus"})].copy()
+    return df
+
+
 def _validate_pages(pages: pd.DataFrame) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    if pages is None or pages.empty:
+    df = _published_pages(pages)
+    if df.empty:
         return issues
     rows = []
-    for idx, r in pages.iterrows():
-        slug = slugify(as_str(r.get("slug"))) if as_str(r.get("slug")) else ""
-        if slug:
-            rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), f"{slug}.html", "slug"))
+    for idx, r in df.iterrows():
+        slug = as_str(r.get("_validation_slug"))
+        rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), f"{slug}.html", "slug"))
     issues.extend(_target_duplicates(rows, "page"))
     return issues
 
@@ -477,11 +508,10 @@ def _validate_output_targets(pages: pd.DataFrame, collections: pd.DataFrame,
     for target in sorted(ROOT_AUTOMATIC_TARGETS | SECTION_INDEX_TARGETS):
         rows.append(("automatic", target, target, "output"))
 
-    if pages is not None and not pages.empty:
-        for idx, r in pages.iterrows():
-            slug = slugify(as_str(r.get("slug"))) if as_str(r.get("slug")) else ""
-            if not slug or slug in {"actualites", "actus"}:
-                continue
+    published_pages = _published_pages(pages)
+    if not published_pages.empty:
+        for idx, r in published_pages.iterrows():
+            slug = as_str(r.get("_validation_slug"))
             rows.append(("page", _row_identifier(r, f"row-{idx + 2}"), f"{slug}.html", "slug"))
 
     active_collections = _active_df(collections)

@@ -154,6 +154,22 @@ def test_cli_out_fichier_existant_blocage_sans_modifier(tmp_path, monkeypatch, c
     assert "Traceback" not in err
 
 
+def test_cli_out_ancetre_fichier_blocage_sans_creation(tmp_path, monkeypatch, capsys):
+    wb = _workbook(tmp_path / "ok.xlsx")
+    parent_file = tmp_path / "fichier-existant.txt"
+    parent_file.write_text("ancien", encoding="utf-8")
+    out = parent_file / "sous-dossier"
+    monkeypatch.setattr(sys, "argv", ["build_site.py", "--excel", str(wb), "--out", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        bs.main()
+    assert exc.value.code == 3
+    assert parent_file.read_text(encoding="utf-8") == "ancien"
+    assert not out.exists()
+    err = capsys.readouterr().err
+    assert "OUTPUT_PARENT_NOT_DIRECTORY" in err
+    assert "Traceback" not in err
+
+
 def test_cli_autorise_alerte_avec_force(tmp_path, monkeypatch):
     wb = _workbook(tmp_path / "alert-force.xlsx", title="")
     out = tmp_path / "dist"
@@ -225,8 +241,43 @@ def test_pages_meme_slug_et_identifiant_collision_blocage():
     ])
     report = bs.validate_site_data(books=pd.DataFrame(), pages=pages)
     assert "DUPLICATE_OUTPUT_TARGET" in _codes(report)
-    issue = [i for i in report.blocking_issues if i.code == "DUPLICATE_OUTPUT_TARGET"][0]
+    duplicate_issues = [i for i in report.blocking_issues if i.code == "DUPLICATE_OUTPUT_TARGET"]
+    assert len(duplicate_issues) == 1
+    issue = duplicate_issues[0]
     assert "page:doublon" in issue.message
+
+
+def test_page_non_publiee_catalogue_ne_bloque_pas():
+    pages = pd.DataFrame([{"slug": "catalogue", "title": "Catalogue manuel", "is_published": 0}])
+    report = bs.validate_site_data(books=pd.DataFrame(), pages=pages)
+    assert not report.has_blocking_issues
+
+
+def test_deux_pages_non_publiees_meme_slug_ne_bloquent_pas():
+    pages = pd.DataFrame([
+        {"slug": "doublon", "title": "Doublon", "is_published": 0},
+        {"slug": "doublon", "title": "Doublon", "is_published": 0},
+    ])
+    report = bs.validate_site_data(books=pd.DataFrame(), pages=pages)
+    assert not report.has_blocking_issues
+
+
+def test_page_publiee_catalogue_bloque_toujours():
+    pages = pd.DataFrame([{"slug": "catalogue", "title": "Catalogue manuel", "is_published": 1}])
+    report = bs.validate_site_data(books=pd.DataFrame(), pages=pages)
+    assert "DUPLICATE_OUTPUT_TARGET" in _codes(report)
+    assert any("catalogue.html" in i.message for i in report.blocking_issues)
+
+
+def test_deux_pages_publiees_meme_slug_bloquent_toujours():
+    pages = pd.DataFrame([
+        {"slug": "doublon", "title": "Doublon", "is_published": 1},
+        {"slug": "doublon", "title": "Doublon", "is_published": 1},
+    ])
+    report = bs.validate_site_data(books=pd.DataFrame(), pages=pages)
+    duplicate_issues = [i for i in report.blocking_issues if i.code == "DUPLICATE_OUTPUT_TARGET"]
+    assert len(duplicate_issues) == 1
+    assert "doublon.html" in duplicate_issues[0].message
 
 
 def test_collections_meme_slug_et_identifiant_collision_blocage():
@@ -236,7 +287,9 @@ def test_collections_meme_slug_et_identifiant_collision_blocage():
     ])
     report = bs.validate_site_data(books=pd.DataFrame(), collections=collections)
     assert "DUPLICATE_OUTPUT_TARGET" in _codes(report)
-    assert any("collections/index.html" in i.message for i in report.blocking_issues)
+    duplicate_issues = [i for i in report.blocking_issues if i.code == "DUPLICATE_OUTPUT_TARGET"]
+    assert len(duplicate_issues) == 1
+    assert "collections/index.html" in duplicate_issues[0].message
 
 
 def test_revues_meme_slug_et_identifiant_collision_blocage():
@@ -246,7 +299,9 @@ def test_revues_meme_slug_et_identifiant_collision_blocage():
     ])
     report = bs.validate_site_data(books=pd.DataFrame(), revues=revues)
     assert "DUPLICATE_OUTPUT_TARGET" in _codes(report)
-    assert any("revues/index.html" in i.message for i in report.blocking_issues)
+    duplicate_issues = [i for i in report.blocking_issues if i.code == "DUPLICATE_OUTPUT_TARGET"]
+    assert len(duplicate_issues) == 1
+    assert "revues/index.html" in duplicate_issues[0].message
 
 
 def test_page_collision_avec_page_automatique_blocage():
@@ -264,6 +319,19 @@ def test_page_pilotee_par_pages_autorisee_si_producteur_unique():
     ])
     report = bs.validate_site_data(books=pd.DataFrame(), pages=pages)
     assert not report.has_blocking_issues
+
+
+def test_page_contact_publiee_autorisee_et_generable(tmp_path):
+    wb = _workbook(
+        tmp_path / "contact.xlsx",
+        pages_rows=[
+            {"slug": "presentation", "title": "Presentation", "content_md": "Texte", "is_published": 1},
+            {"slug": "contact", "title": "Contact", "content_md": "Nous contacter", "is_published": 1},
+        ],
+    )
+    out = tmp_path / "dist"
+    bs.build_site(wb, out, covers_dir=None)
+    assert (out / "contact.html").exists()
 
 
 def test_csv_colonnes_attendues(tmp_path):
@@ -292,7 +360,8 @@ def test_decision_gui_pure():
 
 
 def _workbook(path: Path, title: str = "Un livre", id13: str = "9782877750001",
-              ftp: bool = False, book_rows: list[dict] | None = None) -> Path:
+              ftp: bool = False, book_rows: list[dict] | None = None,
+              pages_rows: list[dict] | None = None) -> Path:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "CONFIG"
@@ -347,7 +416,15 @@ def _workbook(path: Path, title: str = "Un livre", id13: str = "9782877750001",
 
     pages = wb.create_sheet("PAGES")
     pages.append(["slug", "title", "content_md", "is_published"])
-    pages.append(["presentation", "Presentation", "Texte", 1])
+    if pages_rows is None:
+        pages_rows = [{"slug": "presentation", "title": "Presentation", "content_md": "Texte", "is_published": 1}]
+    for row in pages_rows:
+        pages.append([
+            row.get("slug", ""),
+            row.get("title", ""),
+            row.get("content_md", ""),
+            row.get("is_published", 1),
+        ])
 
     collections = wb.create_sheet("COLLECTIONS")
     collections.append(["collection_id", "name", "slug", "is_active"])
