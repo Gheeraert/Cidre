@@ -17,7 +17,7 @@ def test_fmt_display_date_supprime_toute_composante_horaire_textuelle_iso():
     assert fmt_display_date("2026-04-10 14:30") == "2026-04-10"
     assert fmt_display_date("2026-04-10 14:30:00") == "2026-04-10"
     assert fmt_display_date("2026-04-10T14:30:00") == "2026-04-10"
-    assert fmt_display_date("Rendez-vous Ã  00:00") == "Rendez-vous Ã  00:00"
+    assert fmt_display_date("Rendez-vous à 00:00") == "Rendez-vous à 00:00"
 
 
 def test_fmt_display_date_supprime_toute_composante_horaire_des_objets():
