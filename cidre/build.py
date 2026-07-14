@@ -439,7 +439,6 @@ def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) ->
     body = f"""
 <h1>{e(cfg.menu_label_catalogue)}</h1>
 <p class="small">Recherche par titre, auteur, ISBN, collection ou format, avec filtres par collection, format et année.</p>
-
 <div id="catalogue-toolbar" class="toolbar" hidden>
   <input id="q" type="search" placeholder="Rechercher par titre, auteur, ISBN, collection ou format…">
   <select id="f_collection">
@@ -716,6 +715,10 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
     body = f"""
 <h1>{e(cfg.menu_label_collections)}</h1>
 <p class="small">Nos collections.</p>
+<p class="small">
+  (Retrouvez aussi notre collection Open Access sur OpenEdition :
+  <a href="https://books.openedition.org/purh/" target="_blank" rel="noopener">https://books.openedition.org/purh/</a>)
+</p>
 <ul>
 {chr(10).join(lis)}
 </ul>
