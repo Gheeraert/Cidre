@@ -150,8 +150,8 @@ def fmt_display_date(v: Any) -> str:
 
     s = as_str(v)
 
-    # Cas fréquent : "2026-04-10 00:00:00"
-    m = re.match(r"^(\d{4}-\d{2}-\d{2})\s+00:00:00$", s)
+    # Cas fréquents : "2026-04-10 14:30", "2026-04-10T14:30:00Z".
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?$", s)
     if m:
         return m.group(1)
 
