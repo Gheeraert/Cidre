@@ -248,7 +248,7 @@ Un petit éditeur graphique permet de gérer la feuille ACTUS du classeur sans o
 ```
 
 - l'ISBN du livre associé, le visuel et le lien externe sont facultatifs et indépendants ;
-- l'éditeur lit et écrit uniquement la feuille `ACTUS` ; il ne lit ni ne modifie la feuille `CONFIG` ;
+- l'éditeur écrit uniquement dans la feuille `ACTUS` ; il consulte le catalogue pour vérifier les ISBN et retrouver les ouvrages associés, sans lire ni modifier la feuille `CONFIG` ;
 - les images importées sont rangées automatiquement dans `assets/actu/` à côté du classeur ;
 - les anciens emplacements sont encore acceptés en lecture pour compatibilité, mais `assets/actu/` est l'emplacement recommandé ;
 - une sauvegarde horodatée du classeur est créée avant la première modification de la session ;
