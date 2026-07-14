@@ -80,6 +80,36 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Dépendances Python verrouillées
+
+Python 3.12 est la version de référence pour les tests et la CI.
+
+Pour une installation stable ou de production, installez l'environnement validé :
+
+```bash
+python -m pip install -r requirements-lock.txt
+```
+
+`requirements.txt` liste les dépendances directes de CIDRE et leurs bornes.
+`requirements-lock.txt` fige les versions exactes directes et transitives
+testées ensemble.
+
+Pour régénérer le verrou, utilisez un environnement Python 3.12 propre :
+
+```bash
+python -m venv .venv-lock
+.venv-lock\Scripts\python.exe -m pip install --upgrade pip
+.venv-lock\Scripts\python.exe -m pip install pip-tools==7.5.3
+.venv-lock\Scripts\python.exe -m piptools compile requirements.txt --output-file requirements-lock.txt
+```
+
+Après toute régénération de `requirements-lock.txt`, exécutez la suite
+complète avant de committer :
+
+```bash
+python -m pytest
+```
+
 ---
 
 ## Démarrage rapide
