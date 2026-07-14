@@ -307,10 +307,11 @@ def test_meme_mecanisme_collections_revues(tmp_path):
 def test_catalogue_lots_de_60(tmp_path):
     assert f"const PAGE_SIZE = {bs.CARD_PAGE_SIZE};" in bs.DEFAULT_JS
     assert "const PAGE_SIZE = 60;" in bs.DEFAULT_JS
-    bs.build_catalogue_page(bs.SiteConfig(), tmp_path)
+    books = pd.DataFrame([_book_row(i) for i in range(1, 62)], columns=BOOK_COLS)
+    bs.build_catalogue_page(bs.SiteConfig(), books, tmp_path)
     html = (tmp_path / "catalogue.html").read_text(encoding="utf-8")
     assert "const PAGE_SIZE = 60;" in html
-    assert 'id="more"' in html and "Afficher plus" in html
+    assert 'id="more"' in html and 'type="button"' in html and "Afficher plus" in html
 
 
 # ---------------------------------------------------------------

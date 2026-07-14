@@ -44,7 +44,8 @@ Téléchargement des exécutables et utilisation
   - `nouveautes.html`, `a-paraitre.html`  
   - `collections/…`, `revues/…`  
   - pages fixes (politique éditoriale, mentions légales, etc.)
-- Export d’un `catalogue.json` en JSON consommé en front (recherche / filtres / tri sans backend)
+- Export d’un `catalogue.json` réutilisable ; le catalogue HTML reste lisible sans JavaScript,
+  avec recherche et filtres activés progressivement côté navigateur
 - Gestion des couvertures (copie, fallback si manquante)
 - Option de publication (FTP) si activée dans le script / la config
 - Utilisation simple : chargement de l'Excel et génération automatique depuis une interface tkinter (boîte de dialogue)

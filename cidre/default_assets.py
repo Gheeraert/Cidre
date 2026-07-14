@@ -403,124 +403,70 @@ pre { white-space: pre-wrap; background:#fff; border:1px solid #eee; border-radi
 CARD_PAGE_SIZE = 60
 
 DEFAULT_JS = r"""
-const PAGE_SIZE = __CARD_PAGE_SIZE__;
-let limit = PAGE_SIZE;
-let timer = null;
-
-async function loadCatalogue() {
-  const res = await fetch("./catalogue.json");
-  return await res.json();
-}
-function esc(s){return String(s||"")
-  .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-  .replaceAll('"',"&quot;").replaceAll("'","&#039;");}
-function normalize(s){return (s||"").toLowerCase().trim();}
-
-function card(r){
-  const cover = r.cover
-    ? `<img class="cover"
-        src="./covers/${esc(r.cover)}"
-        alt=""
-        loading="lazy"
-        decoding="async"
-        fetchpriority="low"
-        onerror="this.style.display='none'">`
-    : `<div class="cover"></div>`;
-
-  const physical = r.physical ? `<div class="small">${esc(r.physical)}</div>` : "";
-  const subtitle = r.subtitle ? `<div class="book-subtitle">${esc(r.subtitle)}</div>` : "";
-  const credit = r.credit ? `<div class="book-credit">${esc(r.credit)}</div>` : "";
-  const badges = [
-    r.collection ? `<span class="badge">${esc(r.collection)}</span>` : "",
-    r.format ? `<span class="badge">${esc(r.format)}</span>` : "",
-    r.openedition_url ? `<span class="badge badge-oa">Open access</span>` : "",
-  ].filter(Boolean).join("");
-  const price = r.price ? `<div class="small">Prix : ${esc(r.price)}</div>` : "";
-  const avail = r.availability ? `<div class="small">${esc(r.availability)}</div>` : "";
-  const excerpt = r.excerpt ? `<div class="small">${esc(r.excerpt)}</div>` : "";
-
-  return `<div class="card">
-    ${cover}
-    <div class="meta">
-      <a href="./livres/${esc(r.slug)}.html"><strong>${esc(r.title)}</strong></a>
-      ${subtitle}
-      ${credit}
-      <div class="badges">${badges}</div>
-      ${price}${avail}${physical}
-      ${excerpt}
-    </div>
-  </div>`;
-}
-
-function buildOptions(values, placeholder){
-  const opts = [`<option value="">${esc(placeholder)}</option>`];
-  for(const v of values){ opts.push(`<option value="${esc(v)}">${esc(v)}</option>`); }
-  return opts.join("");
-}
-function uniqueSorted(arr){
-  return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=>String(a).localeCompare(String(b), "fr"));
-}
-function filterRecs(recs, q, col, fmt, year){
-  const Q = normalize(q);
-  return recs.filter(r=>{
-    if(col && r.collection !== col) return false;
-    if(fmt && r.format !== fmt) return false;
-    if(year && String(r.year) !== String(year)) return false;
-    if(!Q) return true;
-    const hay = [r.title,r.subtitle,r.credit,r.collection,r.format,r.id13].map(x=>normalize(x)).join(" ");
-    return hay.includes(Q);
-  });
-}
-
-async function main(){
-  const recs = await loadCatalogue();
-  const q = document.getElementById("q");
-  const out = document.getElementById("out");
+(function(){
+  const PAGE_SIZE = __CARD_PAGE_SIZE__;
+  const toolbar = document.getElementById("catalogue-toolbar");
+  const query = document.getElementById("q");
+  const grid = document.getElementById("out");
   const count = document.getElementById("count");
-  const selCol = document.getElementById("f_collection");
-  const selFmt = document.getElementById("f_format");
-  const selYear = document.getElementById("f_year");
+  const collection = document.getElementById("f_collection");
+  const format = document.getElementById("f_format");
+  const year = document.getElementById("f_year");
   const more = document.getElementById("more");
+  const empty = document.getElementById("catalogue-empty");
+  const cards = Array.from(document.querySelectorAll(".catalogue-card"));
 
-  const cols = uniqueSorted(recs.map(r=>r.collection));
-  const fmts = uniqueSorted(recs.map(r=>r.format));
-  const years = uniqueSorted(recs.map(r=>r.year)).reverse();
+  if (!toolbar || !query || !grid || !count || !collection || !format ||
+      !year || !more || !empty || !cards.length) return;
 
-  selCol.innerHTML = buildOptions(cols, "Toutes les collections");
-  selFmt.innerHTML = buildOptions(fmts, "Tous les formats");
-  selYear.innerHTML = buildOptions(years, "Toutes les années");
+  let limit = PAGE_SIZE;
+  let timer = null;
+  const normalize = (value) => String(value || "").toLocaleLowerCase().trim();
 
-  function render(){
-    const filtered = filterRecs(recs, q.value, selCol.value, selFmt.value, selYear.value);
-    count.textContent = String(filtered.length);
-
-    const shown = filtered.slice(0, limit);
-    out.innerHTML = shown.map(card).join("");
-
-    if(more){
-      more.style.display = (filtered.length > limit) ? "inline-block" : "none";
-    }
+  function matches(card) {
+    if (collection.value && card.dataset.collection !== collection.value) return false;
+    if (format.value && card.dataset.format !== format.value) return false;
+    if (year.value && card.dataset.year !== year.value) return false;
+    const term = normalize(query.value);
+    return !term || normalize(card.dataset.search).includes(term);
   }
 
-  function scheduleRender(resetLimit){
-    if(resetLimit) limit = PAGE_SIZE;
-    if(timer) clearTimeout(timer);
-    timer = setTimeout(()=>{ timer=null; render(); }, 140);
+  function applyFilters() {
+    const matchingCards = cards.filter(matches);
+    count.textContent = String(matchingCards.length);
+    const visibleCards = new Set(matchingCards.slice(0, limit));
+    cards.forEach((card) => { card.hidden = !visibleCards.has(card); });
+    empty.hidden = matchingCards.length !== 0;
+    more.hidden = matchingCards.length <= limit;
   }
 
-  [q, selCol, selFmt, selYear].forEach(el=>el.addEventListener("input", ()=>scheduleRender(true)));
+  function scheduleFilters() {
+    limit = PAGE_SIZE;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      applyFilters();
+    }, 140);
+  }
 
-  if(more){
-    more.addEventListener("click", (e)=>{
-      e.preventDefault();
-      limit += PAGE_SIZE;
-      render();
+  try {
+    query.addEventListener("input", scheduleFilters);
+    [collection, format, year].forEach((control) => {
+      control.addEventListener("change", scheduleFilters);
     });
+    more.addEventListener("click", (event) => {
+      event.preventDefault();
+      limit += PAGE_SIZE;
+      applyFilters();
+    });
+    applyFilters();
+    toolbar.hidden = false;
+  } catch (error) {
+    cards.forEach((card) => { card.hidden = false; });
+    more.hidden = true;
+    empty.hidden = true;
   }
-
-  render();
-}
-main();
+})();
 """.replace("__CARD_PAGE_SIZE__", str(CARD_PAGE_SIZE))
 
 # Révélation progressive des cartes déjà rendues côté Python (collections,

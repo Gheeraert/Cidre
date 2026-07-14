@@ -124,17 +124,21 @@ def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> No
 
         shutil.copy2(src, dest)
 
+def _catalogue_year_value(value: Any) -> str:
+    """Valeur d'année commune au JSON et aux filtres du catalogue."""
+    if value is None or pd.isna(value):
+        return ""
+    try:
+        return str(int(float(value)))
+    except Exception:
+        return str(value).strip()
+
+
 def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
     recs = []
     for _, r in books.iterrows():
         # Année: garantir une valeur lisible (éviter '2025.0')
-        y = r.get("year")
-        year_str = ""
-        if y is not None and not pd.isna(y):
-            try:
-                year_str = str(int(float(y)))
-            except Exception:
-                year_str = str(y).strip()
+        year_str = _catalogue_year_value(r.get("year"))
 
         # COVER: ne publier que si le fichier existe vraiment dans covers/
         cover = as_str(r.get("cover_file"))
@@ -169,17 +173,22 @@ def build_catalogue_json(books: pd.DataFrame, out_dir: Path) -> None:
 
 
 
-def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
+def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig,
+                    extra_classes: str = "",
+                    data_attributes: Optional[Dict[str, str]] = None,
+                    lazy_cover: bool = False,
+                    show_excerpt: bool = False) -> str:
     cover = as_str(r.get("cover_file")).strip()
 
     if cover:
         cover = cover.replace("\\", "/").split("/")[-1]  # basename sûr
         cover_url = f"{rel_prefix}/covers/{e(cover)}"  # PAS de replace()
 
+        image_loading = ' loading="lazy" decoding="async"' if lazy_cover else ""
         cover_html = (
             f"<a href='#' class='cover-zoom' data-lightbox-src='{cover_url}'>"
-            f"<img class='cover' style='width:180px;height:auto' src='{cover_url}' alt='' "
-            f"onerror=\"this.style.display='none'\">"
+            f"<img class='cover' style='width:180px;height:auto' src='{cover_url}' alt=''"
+            f"{image_loading} onerror=\"this.style.display='none'\">"
             f"</a>"
         )
     else:
@@ -217,9 +226,19 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
     price_html = f'<div class="small">Prix : {e(price)}</div>' if (cfg.show_price and price) else ""
     avail_html = f'<div class="small">{e(avail)}</div>' if (cfg.show_availability and avail) else ""
     physical_html = f'<div class="small">{e(physical)}</div>' if physical else ""
+    excerpt = as_str(r.get("excerpt"))
+    excerpt_html = f'<div class="small">{e(excerpt)}</div>' if (show_excerpt and excerpt) else ""
+
+    classes = "card"
+    if extra_classes:
+        classes = f"{classes} {extra_classes}"
+    attrs = "".join(
+        f' {name}="{e(value)}"'
+        for name, value in (data_attributes or {}).items()
+    )
 
     return f"""
-<div class="card">
+<div class="{e(classes)}"{attrs}>
   {cover_html}
   <div class="meta">
     <a href="{e(book_href(r.get('slug'), rel_prefix))}"><strong>{e(r.get('titre_norm'))}</strong></a>
@@ -227,7 +246,7 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig) -> str:
     {credit_html}
     {badge_html}
     {date_html}
-    {price_html}{avail_html}{physical_html}
+    {price_html}{avail_html}{physical_html}{excerpt_html}
   </div>
 </div>
 """.strip()
@@ -293,22 +312,88 @@ def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
 """
     write_file(out_dir / "index.html", page_shell(cfg, f"{cfg.site_title} — Accueil", "home", body, "."))
 
-def build_catalogue_page(cfg: SiteConfig, out_dir: Path) -> None:
+def _catalogue_options(values: List[str], placeholder: str) -> str:
+    options = [f'<option value="">{e(placeholder)}</option>']
+    options.extend(f'<option value="{e(value)}">{e(value)}</option>' for value in values)
+    return "\n  ".join(options)
+
+
+def _catalogue_card_data(row: pd.Series) -> Dict[str, str]:
+    collection = as_str(row.get("collection"))
+    fmt = as_str(row.get("format_site"))
+    year = _catalogue_year_value(row.get("year"))
+    search_text = " ".join([
+        as_str(row.get("titre_norm")),
+        as_str(row.get("sous_titre_norm")),
+        as_str(row.get("credit_ligne")),
+        as_str(row.get("id13")),
+        collection,
+        fmt,
+    ])
+    return {
+        "data-collection": collection,
+        "data-format": fmt,
+        "data-year": year,
+        "data-search": search_text,
+    }
+
+
+def _catalogue_year_sort_key(year: str) -> tuple[int, Any]:
+    try:
+        return (1, int(year))
+    except (TypeError, ValueError):
+        return (0, year.casefold())
+
+
+def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
+    cards = [
+        _book_card_html(
+            row, ".", cfg,
+            extra_classes="catalogue-card",
+            data_attributes=_catalogue_card_data(row),
+            lazy_cover=True,
+            show_excerpt=True,
+        )
+        for _, row in books.iterrows()
+    ]
+    collections = sorted(
+        {as_str(row.get("collection")) for _, row in books.iterrows() if as_str(row.get("collection"))},
+        key=str.casefold,
+    )
+    formats = sorted(
+        {as_str(row.get("format_site")) for _, row in books.iterrows() if as_str(row.get("format_site"))},
+        key=str.casefold,
+    )
+    years = sorted(
+        {_catalogue_year_value(row.get("year")) for _, row in books.iterrows() if _catalogue_year_value(row.get("year"))},
+        key=_catalogue_year_sort_key,
+        reverse=True,
+    )
+    empty_hidden = " hidden" if cards else ""
     body = f"""
 <h2>{e(cfg.menu_label_catalogue)}</h2>
 <p class="small">Recherche plein texte + filtres (collection / format / année).</p>
 
-<div class="toolbar">
+<div id="catalogue-toolbar" class="toolbar" hidden>
   <input id="q" type="search" placeholder="Rechercher (titre, contributeurs, ISBN, collection)…">
-  <select id="f_collection"></select>
-  <select id="f_format"></select>
-  <select id="f_year"></select>
+  <select id="f_collection">
+  {_catalogue_options(collections, "Toutes les collections")}
+  </select>
+  <select id="f_format">
+  {_catalogue_options(formats, "Tous les formats")}
+  </select>
+  <select id="f_year">
+  {_catalogue_options(years, "Toutes les années")}
+  </select>
 </div>
 
-<p class="small"><span id="count"></span> résultat(s)</p>
-<div id="out" class="grid"></div>
+<p class="small"><span id="count">{len(cards)}</span> résultat(s)</p>
+<div id="out" class="grid">
+{chr(10).join(cards)}
+</div>
+<p id="catalogue-empty" class="small"{empty_hidden}>Aucun résultat.</p>
 <p style="margin-top:12px">
-  <a id="more" class="btn" href="#">Afficher plus</a>
+  <button type="button" id="more" class="btn" hidden>Afficher plus</button>
 </p>
 <script>{DEFAULT_JS}</script>
 """

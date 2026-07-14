@@ -181,7 +181,7 @@ def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataF
     # Build pages
     build_pages(cfg, pages, contacts, out_dir)
     build_home(cfg, home_books, out_dir)
-    build_catalogue_page(cfg, out_dir)
+    build_catalogue_page(cfg, books, out_dir)
     build_new_titles(cfg, recent, out_dir, cfg.new_months)
     build_upcoming_page(cfg, upcoming, out_dir)
     # build_actualites_page(cfg, out_dir)

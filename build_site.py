@@ -11,7 +11,8 @@ Générateur statique : Excel -> site HTML (sans backend)
 - Lit : CONFIG, PAGES, COLLECTIONS, REVUES, CONTACTS + un onglet catalogue
 - Génère : index.html, catalogue.html, nouveautes.html, a-paraitre.html,
            collections/, revues/, pages statiques et assets/ dans le dossier de sortie choisi
-- Recherche + filtres (collection / format / année) côté navigateur, via catalogue.json
+- Catalogue HTML autonome ; recherche et filtres (collection / format / année)
+  activés progressivement côté navigateur
 
 Usage:
   python build_site.py --excel gabarit/purh_site_excel_gabarit.xlsx --out site-sortie --covers-dir covers --assets-dir assets-source
