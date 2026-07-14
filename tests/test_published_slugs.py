@@ -279,6 +279,32 @@ def test_cli_alerte_stabilite_ne_signale_pas_ancien_validation_csv(tmp_path):
     assert (out / "validation.csv").read_text(encoding="utf-8") == "ancien rapport"
 
 
+def test_cli_affiche_message_pour_chaque_alerte(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx", [
+        {"id13": "9782877750001", "slug": "nouveau", "titre_norm": "Livre modifie"},
+        {"id13": "9782877750002", "slug": "slug-actuel", "titre_norm": "Livre sans ancien slug"},
+    ])
+    out = tmp_path / "site-sortie"
+    out.mkdir()
+    _catalogue(out / "catalogue.json", [
+        {"id13": "9782877750001", "slug": "ancien"},
+        {"id13": "9782877750002", "slug": ""},
+    ])
+
+    result = subprocess.run(
+        [sys.executable, "build_site.py", "--excel", str(wb), "--out", str(out)],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 4
+    assert "BOOK_SLUG_CHANGED" in result.stderr
+    assert "Slug publié : ancien" in result.stderr
+    assert "PUBLISHED_BOOK_SLUG_MISSING" in result.stderr
+    assert "sans slug exploitable" in result.stderr
+
+
 def test_validate_only_compare_avant_remplacement_catalogue(tmp_path):
     wb = _workbook(tmp_path / "site.xlsx", [{"id13": "9782877750001", "slug": "nouveau", "titre_norm": "Livre"}])
     out = tmp_path / "site-sortie"

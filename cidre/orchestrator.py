@@ -372,7 +372,7 @@ def main():
         for issue in exc.report.alerts:
             print("", file=sys.stderr)
             print(issue.code, file=sys.stderr)
-        print(issue.message, file=sys.stderr)
+            print(issue.message, file=sys.stderr)
         print(str(exc), file=sys.stderr)
         report_path = out_dir / "validation.csv"
         stability_alert = any(issue.code in PUBLISHED_SLUG_ALERT_CODES for issue in exc.report.alerts)
