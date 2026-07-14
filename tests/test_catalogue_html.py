@@ -94,6 +94,19 @@ def test_catalogue_html_est_complet_sans_catalogue_json(tmp_path):
     assert '<span id="count">2</span>' in html
 
 
+def test_catalogue_html_decrit_precisement_la_recherche(tmp_path):
+    html = _build_catalogue(tmp_path, pd.DataFrame([_book(1)]))
+
+    assert (
+        "Recherche par titre, auteur, ISBN, collection ou format, "
+        "avec filtres par collection, format et année."
+    ) in html
+    assert (
+        'placeholder="Rechercher par titre, auteur, ISBN, collection ou format…"'
+    ) in html
+    assert "Recherche plein texte" not in html
+
+
 def test_catalogue_json_reste_un_export_independant(tmp_path):
     books = pd.DataFrame([_book(1), _book(2)])
     _build_catalogue(tmp_path, books)

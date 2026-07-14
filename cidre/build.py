@@ -379,10 +379,10 @@ def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) ->
     empty_hidden = " hidden" if cards else ""
     body = f"""
 <h2>{e(cfg.menu_label_catalogue)}</h2>
-<p class="small">Recherche plein texte + filtres (collection / format / année).</p>
+<p class="small">Recherche par titre, auteur, ISBN, collection ou format, avec filtres par collection, format et année.</p>
 
 <div id="catalogue-toolbar" class="toolbar" hidden>
-  <input id="q" type="search" placeholder="Rechercher (titre, contributeurs, ISBN, collection)…">
+  <input id="q" type="search" placeholder="Rechercher par titre, auteur, ISBN, collection ou format…">
   <select id="f_collection">
   {_catalogue_options(collections, "Toutes les collections")}
   </select>
