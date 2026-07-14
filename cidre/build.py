@@ -79,7 +79,12 @@ def build_seo_files(cfg: SiteConfig, out_dir: Path) -> None:
     site_url = normalize_site_url(cfg.site_url)
     sitemap_path = out_dir / "sitemap.xml"
     if site_url:
-        html_paths = [p.relative_to(out_dir).as_posix() for p in out_dir.rglob("*.html")]
+        html_paths = []
+        for page in out_dir.rglob("*.html"):
+            rel = page.relative_to(out_dir)
+            if rel.parts and rel.parts[0] in {"assets", "covers"}:
+                continue
+            html_paths.append(rel.as_posix())
         write_file(sitemap_path, sitemap_xml(site_url, html_paths))
     elif sitemap_path.exists():
         sitemap_path.unlink()

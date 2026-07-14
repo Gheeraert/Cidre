@@ -5,13 +5,15 @@ from __future__ import annotations
 import html
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import PurePosixPath
 from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from .data_models import SiteConfig
-from .utils import as_str, html_to_text, normalize_external_url, parse_pub_date
+from .utils import as_str, html_to_text, normalize_external_url
 
 
 _SCRIPT_UNSAFE = {
@@ -20,6 +22,18 @@ _SCRIPT_UNSAFE = {
     "&": "\\u0026",
     "\u2028": "\\u2028",
     "\u2029": "\\u2029",
+}
+
+_SCHEMA_BOOK_FORMATS = {
+    "broche": "https://schema.org/Paperback",
+    "paperback": "https://schema.org/Paperback",
+    "relie": "https://schema.org/Hardcover",
+    "hardcover": "https://schema.org/Hardcover",
+    "numerique": "https://schema.org/EBook",
+    "ebook": "https://schema.org/EBook",
+    "e-book": "https://schema.org/EBook",
+    "livre audio": "https://schema.org/AudiobookFormat",
+    "audiobook": "https://schema.org/AudiobookFormat",
 }
 
 
@@ -107,6 +121,8 @@ def clean_description(value: Any, limit: int = 180) -> str:
     if not text:
         return ""
     text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", "", text)
+    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", text)
     text = html_to_text(text)
     text = re.sub(r"[`*_#>|]", " ", text)
     text = html.unescape(re.sub(r"\s+", " ", text)).strip()
@@ -134,11 +150,37 @@ def bibliographic_description(book: Any) -> str:
 
 
 def book_description(book: Any) -> str:
-    return clean_description(
-        as_str(book.get("Description courte"))
-        or as_str(book.get("Description longue"))
+    return (
+        clean_description(book.get("Description courte"))
+        or clean_description(book.get("Description longue"))
         or bibliographic_description(book)
     )
+
+
+def schema_book_format(value: Any) -> str:
+    """Retourne une URL Schema.org seulement pour les formats sans ambiguite."""
+    raw = as_str(value).lower()
+    if not raw:
+        return ""
+    normalized = unicodedata.normalize("NFKD", raw)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return _SCHEMA_BOOK_FORMATS.get(normalized, "")
+
+
+def schema_date_published(value: Any) -> str:
+    """Date Schema.org stricte : aucune date partielle completee artificiellement."""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    raw = as_str(value)
+    if not raw or not re.match(r"^\d{4}-\d{2}-\d{2}(?:$|[T ])", raw):
+        return ""
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
+    except Exception:
+        return ""
 
 
 def site_description(cfg: SiteConfig) -> str:
@@ -234,7 +276,6 @@ def book_json_ld(cfg: SiteConfig, book: Any, *, public_path: str, description: s
     data: dict[str, Any] = {
         "@context": "https://schema.org",
         "@type": "Book",
-        "inLanguage": "fr",
         "publisher": ({"@id": f"{normalize_site_url(cfg.site_url)}#organization"}
                       if normalize_site_url(cfg.site_url)
                       else {"@type": "Organization", "name": as_str(cfg.site_title)}),
@@ -253,18 +294,18 @@ def book_json_ld(cfg: SiteConfig, book: Any, *, public_path: str, description: s
     isbn = as_str(book.get("id13"))
     if isbn:
         data["isbn"] = isbn
-    parsed_date = parse_pub_date(book.get("date_parution_norm"))
-    if parsed_date:
-        data["datePublished"] = parsed_date.isoformat()
+    published_date = schema_date_published(book.get("date_parution_norm"))
+    if published_date:
+        data["datePublished"] = published_date
     if image_url:
         data["image"] = image_url
-    fmt = as_str(book.get("format_site"))
+    fmt = schema_book_format(book.get("format_site"))
     if fmt:
         data["bookFormat"] = fmt
     if part_of:
         data["isPartOf"] = part_of
     openedition = normalize_external_url(book.get("openedition_url"))
-    if openedition:
+    if absolute_http_url(openedition):
         data["sameAs"] = openedition
     return data
 

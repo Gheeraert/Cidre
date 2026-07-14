@@ -11,10 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import build_site as bs
+from cidre.build import build_seo_files
 from cidre.validation import validate_site_data
 from cidre.seo import (
     PageSeo,
     absolute_public_url,
+    book_description,
+    book_json_ld,
     clean_description,
     json_ld_script,
     normalize_site_url,
@@ -102,6 +105,9 @@ def test_description_nettoyee_tronquee_et_head_sans_url_incorrecte():
     assert description == "Texte avec espaces et balises."
     assert clean_description("mot " * 80).endswith("…")
 
+    assert clean_description("Consulter [la presentation](https://example.org/page).") == "Consulter la presentation."
+    assert clean_description("![Couverture](https://example.org/couv.jpg)") == "Couverture"
+
     cfg = bs.SiteConfig(site_title='Site "test"', site_url="")
     head = seo_head_html(cfg, 'Titre "test"', PageSeo(description='Description "utile"'))
     assert 'name="description" content="Description &quot;utile&quot;"' in head
@@ -110,11 +116,70 @@ def test_description_nettoyee_tronquee_et_head_sans_url_incorrecte():
     assert 'name="twitter:card" content="summary"' in head
 
 
+def test_description_livre_applique_les_fallbacks_apres_nettoyage():
+    assert book_description({
+        "Description courte": "![ ](https://example.org/image.jpg)",
+        "Description longue": "Longue [description](https://example.org).",
+        "titre_norm": "Titre",
+    }) == "Longue description."
+    fallback = book_description({
+        "Description courte": "![ ](https://example.org/image.jpg)",
+        "Description longue": "![ ](https://example.org/image.jpg)",
+        "titre_norm": "Titre",
+        "id13": "9782877750001",
+    })
+    assert "Titre" in fallback
+    assert "9782877750001" in fallback
+
+
 def test_json_ld_ne_peut_pas_fermer_son_script():
     script = json_ld_script({"@context": "https://schema.org", "description": "</script><script>alert(1)</script>"})
     assert "</script><script>" not in script
     payload = re.search(r">(.*?)</script>$", script, flags=re.S).group(1)
     assert json.loads(payload)["description"] == "</script><script>alert(1)</script>"
+
+
+def test_json_ld_livre_ne_publie_que_les_donnees_structurees_fiables():
+    cfg = bs.SiteConfig(site_title="Presses test", site_url="https://example.org")
+    base = {"titre_norm": "Titre", "id13": "9782877750001"}
+
+    complete = book_json_ld(
+        cfg,
+        {**base, "date_parution_norm": "2026-05-12", "format_site": "Broche", "openedition_url": "mailto:test@example.org"},
+        public_path="livres/titre.html",
+        description="Description",
+    )
+    assert complete["datePublished"] == "2026-05-12"
+    assert complete["bookFormat"] == "https://schema.org/Paperback"
+    assert "inLanguage" not in complete
+    assert "sameAs" not in complete
+
+    numeric = book_json_ld(
+        cfg,
+        {**base, "date_parution_norm": "2026-05-12T08:30:00", "format_site": " Numerique "},
+        public_path="livres/titre.html",
+        description="Description",
+    )
+    assert numeric["datePublished"] == "2026-05-12"
+    assert numeric["bookFormat"] == "https://schema.org/EBook"
+
+    partial_year = book_json_ld(
+        cfg,
+        {**base, "date_parution_norm": "2026", "format_site": "Format inconnu"},
+        public_path="livres/titre.html",
+        description="Description",
+    )
+    assert "datePublished" not in partial_year
+    assert "bookFormat" not in partial_year
+
+    partial_month = book_json_ld(
+        cfg,
+        {**base, "date_parution_norm": "2026-05", "format_site": "Relie"},
+        public_path="livres/titre.html",
+        description="Description",
+    )
+    assert "datePublished" not in partial_month
+    assert partial_month["bookFormat"] == "https://schema.org/Hardcover"
 
 
 def test_generation_seo_complete_et_sitemap_deterministe(tmp_path):
@@ -151,9 +216,14 @@ def test_generation_seo_complete_et_sitemap_deterministe(tmp_path):
     assert book_ld["@type"] == "Book"
     assert book_ld["isbn"] == "9782877750001"
     assert book_ld["datePublished"] == "2026-01-02"
+    assert book_ld["bookFormat"] == "https://schema.org/Paperback"
+    assert "inLanguage" not in book_ld
     assert "author" not in book_ld
     assert book_ld["image"] == "https://example.org/purh/covers/presente.jpg"
-    assert "image" not in _json_ld(missing_cover_book)[0]
+    missing_cover_ld = _json_ld(missing_cover_book)[0]
+    assert "image" not in missing_cover_ld
+    assert "datePublished" not in missing_cover_ld
+    assert missing_cover_ld["bookFormat"] == "https://schema.org/EBook"
 
     sitemap = output / "sitemap.xml"
     root = ET.parse(sitemap).getroot()
@@ -185,6 +255,22 @@ def test_regeneration_supprime_les_fichiers_seo_perimes(tmp_path):
     bs.build_site(second, output, covers_dir=None)
     assert not (output / "sitemap.xml").exists()
     assert (output / "robots.txt").read_text(encoding="utf-8") == "User-agent: *\nAllow: /\n"
+
+
+def test_sitemap_exclut_les_html_des_assets_et_covers(tmp_path):
+    output = tmp_path / "site-sortie"
+    (output / "assets").mkdir(parents=True)
+    (output / "covers").mkdir()
+    (output / "index.html").write_text("<html></html>", encoding="utf-8")
+    (output / "assets" / "documentation.html").write_text("<html></html>", encoding="utf-8")
+    (output / "covers" / "test.html").write_text("<html></html>", encoding="utf-8")
+
+    build_seo_files(bs.SiteConfig(site_url="https://example.org/purh"), output)
+
+    sitemap = (output / "sitemap.xml").read_text(encoding="utf-8")
+    assert "https://example.org/purh</loc>" in sitemap
+    assert "documentation.html" not in sitemap
+    assert "covers/test.html" not in sitemap
 
 
 def test_robots_sans_site_url():
