@@ -20,7 +20,7 @@ onixcheck==0.9.11
     # via -r requirements.txt
 openpyxl==3.1.5
     # via -r requirements.txt
-pandas==2.3.3
+pandas==3.0.3
     # via -r requirements.txt
 python-dateutil==2.9.0.post0
     # via pandas
