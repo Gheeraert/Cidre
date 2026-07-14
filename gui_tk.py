@@ -20,6 +20,12 @@ from cidre.orchestrator import (
     ignored_reserved_asset_json,
     validate_assets_source,
 )
+from cidre.generation_profile import (
+    GenerationProfile,
+    GenerationProfileError,
+    load_generation_profile,
+    save_generation_profile,
+)
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
 from build_site import (
@@ -274,6 +280,13 @@ class App(tk.Tk):
             command=self.show_assets_help,
             takefocus=True,
         ).pack(side="left", padx=(6, 0))
+
+        # Profil de génération
+        row = tk.Frame(frm)
+        row.pack(fill="x", **pad)
+        tk.Label(row, text="Profil de génération :", width=30, anchor="w").pack(side="left")
+        tk.Button(row, text="Charger un profil…", command=self.load_profile).pack(side="left")
+        tk.Button(row, text="Enregistrer le profil…", command=self.save_profile).pack(side="left", padx=8)
 
         # Options
         # Options (sur 2 lignes pour éviter le débordement)
@@ -561,6 +574,51 @@ class App(tk.Tk):
 
     def show_assets_help(self):
         messagebox.showinfo("Structure du dossier des assets", ASSETS_HELP_TEXT)
+
+    def _current_generation_profile(self) -> GenerationProfile:
+        return GenerationProfile(
+            excel_path=self.var_excel.get().strip(),
+            output_dir=self.var_out.get().strip(),
+            covers_dir=self.var_covers.get().strip(),
+            assets_dir=self.var_assets.get().strip(),
+        )
+
+    def _apply_generation_profile(self, profile: GenerationProfile) -> None:
+        self.var_excel.set(profile.excel_path)
+        self.var_out.set(profile.output_dir)
+        self.var_covers.set(profile.covers_dir)
+        self.var_assets.set(profile.assets_dir)
+        self.refresh_ftp_state()
+
+    def load_profile(self):
+        path = filedialog.askopenfilename(
+            title="Charger un profil de génération",
+            filetypes=[("Profil JSON", "*.json"), ("Tous fichiers", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            profile = load_generation_profile(Path(path))
+            self._apply_generation_profile(profile)
+        except GenerationProfileError as exc:
+            messagebox.showerror("Profil de génération invalide", str(exc))
+            return
+        messagebox.showinfo("Profil de génération", "Profil de génération chargé.")
+
+    def save_profile(self):
+        path = filedialog.asksaveasfilename(
+            title="Enregistrer le profil de génération",
+            defaultextension=".json",
+            filetypes=[("Profil JSON", "*.json"), ("Tous fichiers", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            save_generation_profile(Path(path), self._current_generation_profile())
+        except OSError as exc:
+            messagebox.showerror("Profil de génération", f"Impossible d'enregistrer le profil :\n\n{exc}")
+            return
+        messagebox.showinfo("Profil de génération", "Profil de génération enregistré.")
 
     def open_out_folder(self):
         out_dir = self._selected_out_dir()
