@@ -20,6 +20,9 @@ class SiteConfig:
     # Branding
     site_title: str = "Presses universitaires"
     site_subtitle: str = "Catalogue"
+    site_url: str = ""
+    site_description: str = ""
+    social_image: str = ""
     accent_color: str = "#005a9c"
     header_bg: str = "#2e2a22"
 
@@ -190,7 +193,7 @@ def load_config(wb: pd.ExcelFile, sheet_name: str) -> SiteConfig:
             pass
 
     # Normalize logo paths: if value is just a filename -> assets/<filename>
-    for attr in ("logo_left", "logo_right", "favicon", "footer_logo"):
+    for attr in ("logo_left", "logo_right", "favicon", "footer_logo", "social_image"):
         val = getattr(cfg, attr)
         if val and "/" not in val and "\\" not in val:
             setattr(cfg, attr, f"assets/{val}")

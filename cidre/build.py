@@ -15,7 +15,7 @@ import pandas as pd
 from . import utils
 from .data_models import SiteConfig
 from .default_assets import CARD_PAGE_SIZE, DEFAULT_JS, PROGRESSIVE_CARDS_JS
-from .excel_data import render_social_strip, resolve_social_icon_source
+from .excel_data import get_social_links, render_social_strip, resolve_social_icon_source
 from .html_templates import (
     book_order_block, book_retailers_block, order_pdf_rel, page_shell,
 )
@@ -23,6 +23,12 @@ from .routes import (
     book_href, book_public_path, collection_href, collection_public_slug,
     editorial_page_public_path, editorial_page_slug, is_generated_editorial_page_slug,
     revue_href, revue_public_slug,
+)
+from .seo import (
+    PageSeo, absolute_public_url, available_social_image_url, book_description,
+    book_json_ld, clean_description, organization_json_ld, page_title,
+    public_image_path, sitemap_xml, robots_txt, site_description, website_json_ld,
+    normalize_site_url,
 )
 from .utils import (
     as_str, clean_json_value, e, fmt_display_date, md_to_html, norm_bool,
@@ -34,6 +40,50 @@ from .validation import validate_site_data, write_validation_csv
 # -------------------------
 # Build site
 # -------------------------
+
+
+def _generic_page_seo(cfg: SiteConfig, out_dir: Path, public_path: str,
+                      description: str) -> PageSeo:
+    image_url = available_social_image_url(cfg, out_dir)
+    return PageSeo(
+        description=clean_description(description),
+        public_path=public_path,
+        image_url=image_url,
+        image_alt=f"Image de partage de {as_str(cfg.site_title)}" if image_url else "",
+    )
+
+
+def _home_page_seo(cfg: SiteConfig, out_dir: Path) -> PageSeo:
+    logo_path = public_image_path(cfg.logo_left)
+    logo_url = (
+        absolute_public_url(cfg.site_url, logo_path)
+        if logo_path and not logo_path.startswith(("http://", "https://")) and (out_dir / logo_path).is_file()
+        else logo_path if logo_path.startswith(("http://", "https://")) else ""
+    )
+    organization = organization_json_ld(
+        cfg,
+        logo_url=logo_url,
+        social_urls=[item["url"] for item in get_social_links(cfg)],
+    )
+    return PageSeo(
+        description=site_description(cfg),
+        public_path="index.html",
+        image_url=available_social_image_url(cfg, out_dir),
+        image_alt=f"Image de partage de {as_str(cfg.site_title)}",
+        json_ld=[organization, website_json_ld(cfg, organization)],
+    )
+
+
+def build_seo_files(cfg: SiteConfig, out_dir: Path) -> None:
+    """Écrit les fichiers SEO issus des pages réellement construites dans le staging."""
+    site_url = normalize_site_url(cfg.site_url)
+    sitemap_path = out_dir / "sitemap.xml"
+    if site_url:
+        html_paths = [p.relative_to(out_dir).as_posix() for p in out_dir.rglob("*.html")]
+        write_file(sitemap_path, sitemap_xml(site_url, html_paths))
+    elif sitemap_path.exists():
+        sitemap_path.unlink()
+    write_file(out_dir / "robots.txt", robots_txt(site_url))
 
 def copy_covers(covers_dir: Path, out_dir: Path) -> None:
     if not covers_dir.exists():
@@ -73,6 +123,9 @@ def copy_declared_assets(excel_path: Path, out_dir: Path, cfg: SiteConfig) -> No
     (out_dir / "assets").mkdir(parents=True, exist_ok=True)
 
     declared = [cfg.logo_left, cfg.logo_right, cfg.favicon, cfg.footer_logo]
+    social_image = public_image_path(cfg.social_image)
+    if social_image and not social_image.startswith(("http://", "https://")):
+        declared.append(social_image)
     if cfg.order_mode == "pdf" and cfg.order_pdf_filename:
         # Toujours sous assets/, pour correspondre au lien ../assets/<rel>
         declared.append(f"assets/{order_pdf_rel(cfg.order_pdf_filename)}")
@@ -305,7 +358,7 @@ def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
     cards = [_book_card_html(r, ".", cfg) for _, r in df.iterrows()]
     body = f"""
 {social_html}
-<h2>Nouveautés</h2>
+    <h1>Nouveautés</h1>
 <p class="small">Nos parutions récentes</p>
 <div class="grid">
 {chr(10).join(cards)}
@@ -315,7 +368,8 @@ def build_home(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
   <a class="btn" href="./nouveautes.html">Voir les nouveautés</a>
 </p>
 """
-    write_file(out_dir / "index.html", page_shell(cfg, f"{cfg.site_title} — Accueil", "home", body, "."))
+    write_file(out_dir / "index.html", page_shell(
+        cfg, page_title(cfg, home=True), "home", body, ".", seo=_home_page_seo(cfg, out_dir)))
 
 def _catalogue_options(values: List[str], placeholder: str) -> str:
     options = [f'<option value="">{e(placeholder)}</option>']
@@ -378,7 +432,7 @@ def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) ->
     )
     empty_hidden = " hidden" if cards else ""
     body = f"""
-<h2>{e(cfg.menu_label_catalogue)}</h2>
+<h1>{e(cfg.menu_label_catalogue)}</h1>
 <p class="small">Recherche par titre, auteur, ISBN, collection ou format, avec filtres par collection, format et année.</p>
 
 <div id="catalogue-toolbar" class="toolbar" hidden>
@@ -405,7 +459,11 @@ def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) ->
 <script>{DEFAULT_JS}</script>
 """
     write_file(out_dir / "catalogue.html",
-               page_shell(cfg, f"{cfg.site_title} — {cfg.menu_label_catalogue}", "catalogue", body, "."))
+                page_shell(cfg, page_title(cfg, cfg.menu_label_catalogue), "catalogue", body, ".",
+                           seo=_generic_page_seo(
+                               cfg, out_dir, "catalogue.html",
+                               "Catalogue des ouvrages publiés par " + as_str(cfg.site_title),
+                           )))
 
 
 def build_new_titles(cfg: SiteConfig, recent: pd.DataFrame, out_dir: Path, new_months: int) -> None:
@@ -413,11 +471,12 @@ def build_new_titles(cfg: SiteConfig, recent: pd.DataFrame, out_dir: Path, new_m
 
     if df.empty:
         body = f"""
-<h2>Nouveautés</h2>
+<h1>Nouveautés</h1>
 <p class="small">Aucun titre paru dans les {int(new_months)} derniers mois.</p>
 """
         write_file(out_dir / "nouveautes.html",
-                   page_shell(cfg, f"{cfg.site_title} — Nouveautés", "nouveautes", body, "."))
+                   page_shell(cfg, page_title(cfg, "Nouveautés"), "nouveautes", body, ".",
+                              seo=_generic_page_seo(cfg, out_dir, "nouveautes.html", "Nouveautés de " + as_str(cfg.site_title))))
         return
 
     if "pub_date" in df.columns:
@@ -428,13 +487,15 @@ def build_new_titles(cfg: SiteConfig, recent: pd.DataFrame, out_dir: Path, new_m
     # Affichage en vignettes, comme l'accueil
     cards = [_book_card_html(r, ".", cfg) for _, r in df.iterrows()]
     body = f"""
-<h2>Nouveautés</h2>
+<h1>Nouveautés</h1>
 <p class="small">Titres parus dans les {int(new_months)} derniers mois.</p>
 <div class="grid">
 {chr(10).join(cards)}
 </div>
 """
-    write_file(out_dir / "nouveautes.html", page_shell(cfg, f"{cfg.site_title} — Nouveautés", "nouveautes", body, "."))
+    write_file(out_dir / "nouveautes.html", page_shell(
+        cfg, page_title(cfg, "Nouveautés"), "nouveautes", body, ".",
+        seo=_generic_page_seo(cfg, out_dir, "nouveautes.html", "Nouveautés de " + as_str(cfg.site_title))))
 
 
 def build_upcoming_page(cfg: SiteConfig, upcoming: pd.DataFrame, out_dir: Path) -> None:
@@ -442,10 +503,12 @@ def build_upcoming_page(cfg: SiteConfig, upcoming: pd.DataFrame, out_dir: Path) 
 
     if upcoming.empty:
         body = f"""
-<h2>{e(title)}</h2>
+<h1>{e(title)}</h1>
 <p class="small">Aucun titre “à paraître” détecté.</p>
 """
-        write_file(out_dir / "a-paraitre.html", page_shell(cfg, f"{cfg.site_title} — {title}", "a_paraitre", body, "."))
+        write_file(out_dir / "a-paraitre.html", page_shell(
+            cfg, page_title(cfg, title), "a_paraitre", body, ".",
+            seo=_generic_page_seo(cfg, out_dir, "a-paraitre.html", "Ouvrages à paraître chez " + as_str(cfg.site_title))))
         return
 
     df = upcoming.copy()
@@ -462,13 +525,15 @@ def build_upcoming_page(cfg: SiteConfig, upcoming: pd.DataFrame, out_dir: Path) 
     cards = [_book_card_html(r, ".", cfg) for _, r in df.iterrows()]
 
     body = f"""
-<h2>{e(title)}</h2>
+<h1>{e(title)}</h1>
 <p class="small">Prochainement en librairie !</p>
 <div class="grid">
 {chr(10).join(cards)}
 </div>
 """
-    write_file(out_dir / "a-paraitre.html", page_shell(cfg, f"{cfg.site_title} — {title}", "a_paraitre", body, "."))
+    write_file(out_dir / "a-paraitre.html", page_shell(
+        cfg, page_title(cfg, title), "a_paraitre", body, ".",
+        seo=_generic_page_seo(cfg, out_dir, "a-paraitre.html", "Ouvrages à paraître chez " + as_str(cfg.site_title))))
 
 
 def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
@@ -476,6 +541,7 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
                      collection_slugs: Optional[Dict[str, str]] = None) -> None:
     livres_dir = out_dir / "livres"
     livres_dir.mkdir(parents=True, exist_ok=True)
+    available_covers = utils.compute_available_covers(out_dir)
 
     for _, r in books.iterrows():
         title = as_str(r.get("titre_norm"))
@@ -494,10 +560,13 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
         desc = as_str(r.get("Description longue") or r.get("Description courte"))
         toc = as_str(r.get("Table des matières"))
 
+        cover = Path(cover.replace("\\", "/")).name if cover else ""
+        if cover not in available_covers:
+            cover = ""
         cover_html = (
             f"<a href='#' class='cover-zoom' data-lightbox-src='../covers/{e(cover)}'>"
-            f"<img class='cover' style='width:180px;height:auto' src='../covers/{e(cover)}' alt='' "
-            f"onerror=\"this.style.display='none'\">"
+            f"<img class='cover' style='width:180px;height:auto' src='../covers/{e(cover)}' "
+            f"alt='{e(f'Couverture de {title}')}' loading='lazy' decoding='async'>"
             f"</a>"
         ) if cover else ""
         collection_id = as_str(r.get("collection_id"))
@@ -570,15 +639,15 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
 
         order_block = book_order_block(cfg, {"title": title, "id13": id13, "order_url": as_str(r.get("order_url"))})
 
-        desc_html = f"<h3>Présentation</h3>{md_to_html(desc)}" if desc else ""
+        desc_html = f"<h2 class='section-heading'>Présentation</h2>{md_to_html(desc)}" if desc else ""
         toc_block = toc_to_html(toc)
-        toc_html = f"<h3>Table des matières</h3>{toc_block}" if toc_block else ""
+        toc_html = f"<h2 class='section-heading'>Table des matières</h2>{toc_block}" if toc_block else ""
 
         body = f"""
 <div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap">
   <div>{cover_html}</div>
   <div style="min-width:260px;flex:1">
-    <h2>{e(title)}</h2>
+    <h1>{e(title)}</h1>
     {f"<div class='book-subtitle'>{e(subtitle)}</div>" if subtitle else ""}
     {f"<div class='book-credit'>{e(credit)}</div>" if credit else ""}
     {badge_html}
@@ -591,8 +660,26 @@ def build_book_pages(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path,
 {desc_html}
 {toc_html}
 """
-        write_file(out_dir / book_public_path(r.get("slug")),
-                   page_shell(cfg, f"{cfg.site_title} — {title}", "catalogue", body, ".."))
+        public_path = book_public_path(r.get("slug"))
+        image_url = absolute_public_url(cfg.site_url, f"covers/{cover}") if cover else ""
+        part_of = None
+        if collection and collection_id:
+            if revue_slugs is not None and revue_slugs.get(collection_id):
+                part_of = {"@type": "Periodical", "name": collection}
+            elif collection_slugs is not None and collection_slugs.get(collection_id):
+                part_of = {"@type": "CreativeWorkSeries", "name": collection}
+        description = book_description(r)
+        seo = PageSeo(
+            description=description,
+            public_path=public_path,
+            og_type="book",
+            image_url=image_url or available_social_image_url(cfg, out_dir),
+            image_alt=(f"Couverture de {title}" if image_url else f"Image de partage de {as_str(cfg.site_title)}"),
+            json_ld=[book_json_ld(cfg, r, public_path=public_path, description=description,
+                                  image_url=image_url, part_of=part_of)],
+        )
+        write_file(out_dir / public_path,
+                   page_shell(cfg, page_title(cfg, title), "catalogue", body, "..", seo=seo))
 
 
 def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.DataFrame, out_dir: Path) -> None:
@@ -622,13 +709,15 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         public_slug = collection_public_slug(c.get("slug"), c.get("collection_id"))
         lis.append(f'<li><a href="./{e(public_slug)}.html">{e(c.get("name"))}</a></li>')
     body = f"""
-<h2>{e(cfg.menu_label_collections)}</h2>
+<h1>{e(cfg.menu_label_collections)}</h1>
 <p class="small">Nos collections.</p>
 <ul>
 {chr(10).join(lis)}
 </ul>
 """
-    write_file(base / "index.html", page_shell(cfg, f"{cfg.site_title} — Collections", "collections", body, ".."))
+    write_file(base / "index.html", page_shell(
+        cfg, page_title(cfg, "Collections"), "collections", body, "..",
+        seo=_generic_page_seo(cfg, out_dir, "collections/index.html", "Collections de " + as_str(cfg.site_title))))
 
     for _, c in collections.iterrows():
         cid = as_str(c.get("collection_id") or c.get("slug"))
@@ -683,25 +772,32 @@ def build_collections(cfg: SiteConfig, books: pd.DataFrame, collections: pd.Data
         # ---------------------------------
 
         body = f"""
-        <h2>{e(name)}</h2>
+        <h1>{e(name)}</h1>
         {issn_line}
         {desc_block}
         {''.join(meta)}
-        <h3>Ouvrages rattachés</h3>
+        <h2 class='section-heading'>Ouvrages rattachés</h2>
         {cards_html}
         """
         slug = collection_public_slug(c.get("slug"), cid)
-        write_file(base / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {name}", "collections", body, ".."))
+        public_path = f"collections/{slug}.html"
+        description = clean_description(c.get("description_md")) or clean_description(
+            f"Collection {name} des {as_str(cfg.site_title)}")
+        write_file(base / f"{slug}.html", page_shell(
+            cfg, page_title(cfg, name), "collections", body, "..",
+            seo=_generic_page_seo(cfg, out_dir, public_path, description)))
 
 def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out_dir: Path) -> None:
     base = out_dir / "revues"
     base.mkdir(parents=True, exist_ok=True)
     if revues.empty:
         body = f"""
-<h2>{e(cfg.menu_label_revues)}</h2>
+<h1>{e(cfg.menu_label_revues)}</h1>
 <p class="small">Aucune revue renseignée dans l’onglet REVUES.</p>
 """
-        write_file(base / "index.html", page_shell(cfg, f"{cfg.site_title} — Revues", "revues", body, ".."))
+        write_file(base / "index.html", page_shell(
+            cfg, page_title(cfg, "Revues"), "revues", body, "..",
+            seo=_generic_page_seo(cfg, out_dir, "revues/index.html", "Revues de " + as_str(cfg.site_title))))
         return
 
     df = revues.copy()
@@ -722,12 +818,14 @@ def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out
         title = as_str(r.get("title")) or as_str(r.get("journal_id")) or "Revue"
         lis.append(f'<li><a href="./{e(r.get("slug"))}.html">{e(title)}</a></li>')
     body = f"""
-<h2>{e(cfg.menu_label_revues)}</h2>
+<h1>{e(cfg.menu_label_revues)}</h1>
 <ul>
 {chr(10).join(lis)}
 </ul>
 """
-    write_file(base / "index.html", page_shell(cfg, f"{cfg.site_title} — Revues", "revues", body, ".."))
+    write_file(base / "index.html", page_shell(
+        cfg, page_title(cfg, "Revues"), "revues", body, "..",
+        seo=_generic_page_seo(cfg, out_dir, "revues/index.html", "Revues de " + as_str(cfg.site_title))))
 
     for _, r in df.iterrows():
         title = as_str(r.get("title")) or as_str(r.get("journal_id")) or "Revue"
@@ -768,14 +866,19 @@ def build_revues(cfg: SiteConfig, books: pd.DataFrame, revues: pd.DataFrame, out
         cards_html = _progressive_cards_html(cards, "Aucun numéro rattaché trouvé.")
 
         body = f"""
-<h2>{e(title)}</h2>
+<h1>{e(title)}</h1>
 {''.join(meta)}
 {desc if desc else ""}
-<h3>Numéros parus</h3>
+<h2 class='section-heading'>Numéros parus</h2>
 {cards_html}
 """
-        write_file(base / f"{revue_public_slug(r.get('slug'), r.get('title'), r.get('journal_id'))}.html",
-                   page_shell(cfg, f"{cfg.site_title} — {title}", "revues", body, ".."))
+        slug = revue_public_slug(r.get('slug'), r.get('title'), r.get('journal_id'))
+        public_path = f"revues/{slug}.html"
+        description = clean_description(r.get("description_md")) or clean_description(
+            f"Revue {title} des {as_str(cfg.site_title)}")
+        write_file(base / f"{slug}.html", page_shell(
+            cfg, page_title(cfg, title), "revues", body, "..",
+            seo=_generic_page_seo(cfg, out_dir, public_path, description)))
 
 
 def build_contacts(cfg: SiteConfig, contacts: pd.DataFrame, out_dir: Path) -> None:
@@ -808,19 +911,23 @@ def build_contacts(cfg: SiteConfig, contacts: pd.DataFrame, out_dir: Path) -> No
                 f"<div class='card'><div class='meta'><div class='badge'>{e(label)}</div>{''.join(lines)}</div></div>")
 
     if not cards:
-        body = "<h2>Contact</h2><p class='small'>Aucun contact renseigné.</p>"
+        body = "<h1>Contact</h1><p class='small'>Aucun contact renseigné.</p>"
     else:
-        body = f"<h2>Contact</h2><p class='small'>Planche de contacts (générée depuis l’Excel).</p><div class='grid'>{''.join(cards)}</div>"
+        body = f"<h1>Contact</h1><p class='small'>Planche de contacts (générée depuis l’Excel).</p><div class='grid'>{''.join(cards)}</div>"
 
-    write_file(out_dir / "contact.html", page_shell(cfg, f"{cfg.site_title} — Contact", "contact", body, "."))
+    write_file(out_dir / "contact.html", page_shell(
+        cfg, page_title(cfg, "Contact"), "contact", body, ".",
+        seo=_generic_page_seo(cfg, out_dir, "contact.html", "Contact de " + as_str(cfg.site_title))))
 
 
 def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, out_dir: Path) -> None:
     if pages.empty:
         for slug, title, key in [("open-access", cfg.menu_label_open_access, "open_access"),
                                  ("actualites", cfg.menu_label_actualites, "actualites")]:
-            body = f"<h2>{e(title)}</h2><p class='small'>Page non renseignée dans l’onglet PAGES.</p>"
-            write_file(out_dir / f"{slug}.html", page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
+            body = f"<h1>{e(title)}</h1><p class='small'>Page non renseignée dans l’onglet PAGES.</p>"
+            write_file(out_dir / f"{slug}.html", page_shell(
+                cfg, page_title(cfg, title), key, body, ".",
+                seo=_generic_page_seo(cfg, out_dir, f"{slug}.html", title)))
         return
 
     df = pages.copy()
@@ -835,7 +942,7 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, ou
         title = as_str(r.get("title") or slug)
         content = md_to_html(r.get("content_md") or "")
         empty = "<p class='small'>(contenu vide)</p>"
-        body = f"<h2>{e(title)}</h2>{content if content else empty}"
+        body = f"<h1>{e(title)}</h1>{content if content else empty}"
         KEY_BY_SLUG = {
             "presentation": "presentation",
             "soumettre-un-manuscrit": "soumettre",
@@ -852,12 +959,19 @@ def build_pages(cfg: SiteConfig, pages: pd.DataFrame, contacts: pd.DataFrame, ou
         if slug in {"commander", "commandes"}:
             body += "<hr>\n" + render_contacts_block(contacts, heading="Nous contacter")
 
-        write_file(out_dir / editorial_page_public_path(slug), page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
+        public_path = editorial_page_public_path(slug)
+        description = clean_description(r.get("content_md")) or clean_description(title)
+        write_file(out_dir / public_path, page_shell(
+            cfg, page_title(cfg, title), key, body, ".",
+            seo=_generic_page_seo(cfg, out_dir, public_path, description)))
 
     for slug, title, key in [("open-access", cfg.menu_label_open_access, "open_access")]:
         if not (out_dir / editorial_page_public_path(slug)).exists():
-            body = f"<h2>{e(title)}</h2><p class='small'>Page non renseignée dans l’onglet PAGES.</p>"
-            write_file(out_dir / editorial_page_public_path(slug), page_shell(cfg, f"{cfg.site_title} — {title}", key, body, "."))
+            body = f"<h1>{e(title)}</h1><p class='small'>Page non renseignée dans l’onglet PAGES.</p>"
+            public_path = editorial_page_public_path(slug)
+            write_file(out_dir / public_path, page_shell(
+                cfg, page_title(cfg, title), key, body, ".",
+                seo=_generic_page_seo(cfg, out_dir, public_path, title)))
 
 def build_validation_report(books: pd.DataFrame, out_dir: Path) -> None:
     """Facade historique : ecrit validation.csv depuis le moteur structure."""

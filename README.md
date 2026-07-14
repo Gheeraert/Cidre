@@ -146,6 +146,26 @@ CIDRE ne modifie jamais automatiquement l'Excel, ne crée pas de registre histor
 et ne génère pas de redirection HTML. En CLI, une génération est interrompue sans
 `--force`; l'option `--force` permet de confirmer un changement volontaire.
 
+## Référencement et partage social
+
+Trois clés facultatives de la feuille `CONFIG` complètent le référencement du
+site statique :
+
+- `site_url` : URL publique absolue du site, par exemple
+  `https://purh.univ-rouen.fr` ; elle permet de générer les URL canoniques,
+  le sitemap et l'adresse du sitemap dans `robots.txt`.
+- `site_description` : courte description éditoriale générale, utilisée sur
+  l'accueil et comme repli sobre.
+- `social_image` : image générique de partage, sous la forme d'un chemin publié
+  (par exemple `assets/social-share.jpg`) ou d'une URL absolue. Elle est
+  facultative et n'est publiée que lorsqu'elle est exploitable.
+
+Sans `site_url` valide, CIDRE continue à produire le site, mais n'émet pas de
+canonical ni de sitemap contenant des URL relatives. `robots.txt` reste généré
+sans adresse de sitemap. Avec une URL valide, CIDRE génère à la racine
+`sitemap.xml` et `robots.txt`, ainsi que des métadonnées de partage et des
+données structurées sobres. Ces mécanismes ne créent aucune redirection.
+
 ---
 
 ## Commandes principales

@@ -8,13 +8,15 @@ from typing import Any, Dict
 
 from .data_models import SiteConfig
 from .default_assets import DEFAULT_CSS, LIGHTBOX_HTML, NEWS_CAROUSEL_JS
+from .seo import PageSeo, seo_head_html
 from .utils import as_str, e, footer_rich
 
 # -------------------------
 # HTML templates
 # -------------------------
 
-def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: str = ".") -> str:
+def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: str = ".",
+               seo: PageSeo | None = None) -> str:
     def nav_link(href: str, label: str, key: str) -> str:
         cls = "active" if active == key else ""
         return f'<a class="{cls}" href="{href}">{e(label)}</a>'
@@ -54,6 +56,7 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
     right = maybe_link(right, cfg.logo_right_link)
 
     favicon_html = f'<link rel="icon" href="{rel}/{e(cfg.favicon)}">' if cfg.favicon else ""
+    seo_html = seo_head_html(cfg, title, seo)
 
     css = DEFAULT_CSS
     css = css.replace("--accent: #005a9c", f"--accent: {cfg.accent_color}")
@@ -75,6 +78,7 @@ def page_shell(cfg: SiteConfig, title: str, active: str, body_html: str, rel: st
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{e(title)}</title>
   {favicon_html}
+  {seo_html}
   <style>{css}</style>
 </head>
 <body>

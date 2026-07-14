@@ -17,7 +17,7 @@ from . import utils
 from .build import (
     build_book_pages, build_catalogue_json, build_catalogue_page,
     build_collections, build_home, build_new_titles,
-    build_pages, build_revues, build_upcoming_page,
+    build_pages, build_revues, build_seo_files, build_upcoming_page,
     copy_covers, copy_declared_assets,
 )
 from .data_models import load_config
@@ -192,6 +192,7 @@ def _generate_site_into(target_dir: Path, excel_path: Path, cfg, books: pd.DataF
                      collection_slugs=build_collection_slug_map(collections, books))
     build_collections(cfg, books, collections, out_dir)
     build_revues(cfg, books, revues, out_dir)
+    build_seo_files(cfg, out_dir)
 
 
 def remove_legacy_asset_json(out_dir: Path) -> None:

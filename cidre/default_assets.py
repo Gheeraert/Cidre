@@ -25,6 +25,8 @@ header { background: var(--header); color: #fff; position: sticky; top: 0; z-ind
 .nav a.active { opacity: 1; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.85); text-underline-offset: 3px; }
 main.wrap { padding-top: 18px; padding-bottom: 26px; }
 h1, h2, h3 { margin: 0.6rem 0 0.4rem; }
+h1 { font-size: 1.5em; }
+h2.section-heading { font-size: 1.17em; }
 .small { color: #444; font-size: 0.95rem; }
 .book-subtitle { font-size: 1.12rem; font-weight: 700; font-style: normal; margin-top: 4px; }
 .book-credit { font-size: 1.10rem; font-weight: 450; margin-top: 8px; }

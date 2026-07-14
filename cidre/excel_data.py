@@ -18,6 +18,7 @@ from .routes import (
     book_slug_candidate, book_slug_origin, collection_public_slug,
     explicit_book_slug, revue_public_slug,
 )
+from .seo import PageSeo, available_social_image_url, clean_description, page_title
 from .utils import (
     as_str, e, fmt_cm_guess, fmt_display_date, fmt_eur, fmt_int,
     format_credit_line, html_to_text, is_na, md_to_html, norm_bool,
@@ -556,16 +557,28 @@ def render_social_strip(cfg: SiteConfig, out_dir: Path) -> str:
 
 def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
     social_html = render_social_strip(cfg, out_dir)
+    def seo_for_actualites(description: str) -> PageSeo:
+        image_url = available_social_image_url(cfg, out_dir)
+        return PageSeo(
+            description=clean_description(description),
+            public_path="actualites.html",
+            image_url=image_url,
+            image_alt=f"Image de partage de {as_str(cfg.site_title)}" if image_url else "",
+        )
     p = out_dir / "actualites.json"
     if not p.exists():
-        body = f"<h2>{e(cfg.menu_label_actualites)}</h2>{social_html}<p class='small'>Aucune actualité.</p>"
-        write_file(out_dir / "actualites.html", page_shell(cfg, f"{cfg.site_title} — Actualités", "actualites", body, "."))
+        body = f"<h1>{e(cfg.menu_label_actualites)}</h1>{social_html}<p class='small'>Aucune actualité.</p>"
+        write_file(out_dir / "actualites.html", page_shell(
+            cfg, page_title(cfg, cfg.menu_label_actualites), "actualites", body, ".",
+            seo=seo_for_actualites("Actualités de " + as_str(cfg.site_title))))
         return
 
     data = json.loads(p.read_text(encoding="utf-8"))
     if not data:
-        body = f"<h2>{e(cfg.menu_label_actualites)}</h2>{social_html}<p class='small'>Aucune actualité.</p>"
-        write_file(out_dir / "actualites.html", page_shell(cfg, f"{cfg.site_title} — Actualités", "actualites", body, "."))
+        body = f"<h1>{e(cfg.menu_label_actualites)}</h1>{social_html}<p class='small'>Aucune actualité.</p>"
+        write_file(out_dir / "actualites.html", page_shell(
+            cfg, page_title(cfg, cfg.menu_label_actualites), "actualites", body, ".",
+            seo=seo_for_actualites("Actualités de " + as_str(cfg.site_title))))
         return
 
     items = []
@@ -608,14 +621,17 @@ def build_actualites_page(cfg: SiteConfig, out_dir: Path) -> None:
         """.strip())
 
     body = f"""
-<h2>{e(cfg.menu_label_actualites)}</h2>
+<h1>{e(cfg.menu_label_actualites)}</h1>
 {social_html}
 <div class="grid">
 {chr(10).join(items)}
 </div>
 """.strip()
 
-    write_file(out_dir / "actualites.html", page_shell(cfg, f"{cfg.site_title} — Actualités", "actualites", body, "."))
+    description = clean_description(data[0].get("excerpt") or data[0].get("title"))
+    write_file(out_dir / "actualites.html", page_shell(
+        cfg, page_title(cfg, cfg.menu_label_actualites), "actualites", body, ".",
+        seo=seo_for_actualites(description or ("Actualités de " + as_str(cfg.site_title)))))
 
 def load_books(wb: pd.ExcelFile, sheet: str) -> pd.DataFrame:
     df = wb.parse(sheet_name=sheet)

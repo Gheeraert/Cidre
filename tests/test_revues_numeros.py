@@ -82,7 +82,7 @@ def _gen_revues(tmp_path, book_rows, revue_rows):
 def test_revue_un_numero(tmp_path):
     pages = _gen_revues(tmp_path, [_book_row()], [_revue_row()])
     html = pages["austriaca.html"]
-    assert "<h3>Numéros parus</h3>" in html
+    assert "<h2 class='section-heading'>Numéros parus</h2>" in html
     assert len(CARD_RE.findall(html)) == 1
     assert 'href="../livres/austriaca-n-1.html"' in html
     assert "Aucun numéro rattaché trouvé." not in html
@@ -128,7 +128,7 @@ def test_tri_numeros_recent_en_premier(tmp_path):
 def test_revue_sans_numero(tmp_path):
     pages = _gen_revues(tmp_path, [], [_revue_row()])
     html = pages["austriaca.html"]
-    assert "<h3>Numéros parus</h3>" in html
+    assert "<h2 class='section-heading'>Numéros parus</h2>" in html
     assert "Aucun numéro rattaché trouvé." in html
     assert not CARD_RE.findall(html)
 
@@ -198,7 +198,7 @@ def _revue_cards_ok(out: Path):
         if page.name == "index.html":
             continue
         html = page.read_text(encoding="utf-8")
-        assert "<h3>Numéros parus</h3>" in html, f"{page.name} : section manquante"
+        assert "<h2 class='section-heading'>Numéros parus</h2>" in html, f"{page.name} : section manquante"
         for target in CARD_LINK_RE.findall(html):
             if not (out / "livres" / target).exists():
                 erreurs.append(f"{page.name} -> livres/{target} (inexistant)")

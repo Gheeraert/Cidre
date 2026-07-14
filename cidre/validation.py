@@ -27,6 +27,7 @@ from .routes import (
     is_generated_editorial_page_slug,
     revue_public_path,
 )
+from .seo import normalize_site_url, public_image_path
 from .utils import (
     as_str,
     is_na,
@@ -227,8 +228,32 @@ def validate_site_data(
     issues.extend(_validate_output_targets(pages, collections, revues))
     issues.extend(_validate_actualites(actualites))
     issues.extend(_validate_declared_assets(cfg, excel_path))
+    issues.extend(_validate_seo_config(cfg))
 
     return ValidationReport(issues)
+
+
+def _validate_seo_config(cfg: SiteConfig) -> list[ValidationIssue]:
+    raw_site_url = as_str(cfg.site_url)
+    if not raw_site_url:
+        return [_issue(
+            SEVERITY_WARNING,
+            "SITE_URL_MISSING",
+            "site",
+            "site_url",
+            "site_url",
+            "URL publique du site absente : les URL canoniques et le sitemap ne seront pas générés.",
+        )]
+    if not normalize_site_url(raw_site_url):
+        return [_issue(
+            SEVERITY_WARNING,
+            "SITE_URL_INVALID",
+            "site",
+            "site_url",
+            "site_url",
+            "URL publique du site invalide : utilisez une URL absolue HTTP(S) sans query ni fragment.",
+        )]
+    return []
 
 
 def _validate_output_dir(out_dir: Optional[Path]) -> list[ValidationIssue]:
@@ -579,6 +604,9 @@ def _validate_declared_assets(cfg: SiteConfig, excel_path: Optional[Path]) -> li
         ("favicon", cfg.favicon),
         ("footer_logo", cfg.footer_logo),
     ]
+    social_image = public_image_path(cfg.social_image)
+    if social_image and not social_image.startswith(("http://", "https://")):
+        declared.append(("social_image", social_image))
     if cfg.order_mode == "pdf" and cfg.order_pdf_filename:
         rel = as_str(cfg.order_pdf_filename).replace("\\", "/").strip().lstrip("/")
         if rel.startswith("assets/"):
