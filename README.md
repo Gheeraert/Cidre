@@ -112,6 +112,39 @@ Puis visitez : `http://localhost:8000`
 
 4. Un petit serveur se lance et la page d'accueil s'ouvre automatiquement
 
+## Profils de génération
+
+La GUI permet de charger et d'enregistrer un **Profil de génération** au format JSON.
+Ce fichier mémorise uniquement les chemins locaux utiles : classeur Excel, dossier de
+sortie, dossier des couvertures et dossier source des assets. Il ne contient aucun
+mot de passe FTP, aucune option de publication et aucun contenu du classeur.
+
+Exemple :
+
+```json
+{
+  "schema_version": 1,
+  "excel_path": "C:/PURH/catalogue.xlsx",
+  "output_dir": "C:/PURH/site-public",
+  "covers_dir": "C:/PURH/covers",
+  "assets_dir": "C:/PURH/assets-source"
+}
+```
+
+Le profil sert seulement à remplir plus vite les champs de la boîte de dialogue.
+L'Excel reste l'unique source de vérité éditoriale.
+
+## Stabilité des URL des livres
+
+Avant une génération, CIDRE compare les couples `id13 -> slug` du nouvel Excel avec
+le dernier `catalogue.json` présent dans le dossier de sortie. Si un ISBN déjà publié
+changerait de slug, CIDRE signale une alerte forte `BOOK_SLUG_CHANGED` et recommande
+de recopier dans la colonne `slug` l'ancien slug déjà publié.
+
+CIDRE ne modifie jamais automatiquement l'Excel, ne crée pas de registre historique
+et ne génère pas de redirection HTML. En CLI, une génération est interrompue sans
+`--force`; l'option `--force` permet de confirmer un changement volontaire.
+
 ---
 
 ## Commandes principales

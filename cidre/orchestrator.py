@@ -29,6 +29,7 @@ from .excel_data import (
 )
 from .ftp_publish import publish_ftp
 from .output_transaction import staged_output
+from .published_slugs import compare_published_book_slugs, published_slug_issues
 from .utils import compute_available_covers, months_ago, norm_bool
 from .validation import (
     ValidationAlertError, ValidationBlockingError,
@@ -40,6 +41,12 @@ from .validation import (
 # -------------------------
 
 RESERVED_ASSET_ROOT_JSON = {"catalogue.json", "actualites.json"}
+PUBLISHED_SLUG_ALERT_CODES = {
+    "BOOK_SLUG_CHANGED",
+    "PUBLISHED_CATALOGUE_UNREADABLE",
+    "PUBLISHED_CATALOGUE_AMBIGUOUS_ID13",
+    "PUBLISHED_BOOK_SLUG_MISSING",
+}
 
 
 class AssetSourceError(ValueError):
@@ -83,7 +90,12 @@ def build_site(excel_path: Path, out_dir: Path, covers_dir: Optional[Path],
     if report.has_blocking_issues:
         raise ValidationBlockingError(report)
 
+    published_comparison = compare_published_book_slugs(out_dir / "catalogue.json", books)
+    report.issues.extend(published_slug_issues(published_comparison))
+
     if report.has_alerts and not force_alerts:
+        if any(issue.code in PUBLISHED_SLUG_ALERT_CODES for issue in report.alerts):
+            raise ValidationAlertError(report)
         out_dir.mkdir(parents=True, exist_ok=True)
         write_validation_csv(report, out_dir / "validation.csv")
         raise ValidationAlertError(report)
@@ -359,8 +371,14 @@ def main():
         sys.exit(3)
     except ValidationAlertError as exc:
         print(format_validation_summary(exc.report), file=sys.stderr)
+        for issue in exc.report.alerts:
+            print("", file=sys.stderr)
+            print(issue.code, file=sys.stderr)
+            print(issue.message, file=sys.stderr)
         print(str(exc), file=sys.stderr)
-        print(f"Rapport écrit : {out_dir / 'validation.csv'}", file=sys.stderr)
+        report_path = out_dir / "validation.csv"
+        if report_path.exists():
+            print(f"Rapport écrit : {report_path}", file=sys.stderr)
         print("Relancez avec --force pour générer malgré ces alertes.", file=sys.stderr)
         sys.exit(4)
     except AssetSourceError as exc:

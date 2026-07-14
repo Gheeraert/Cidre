@@ -26,6 +26,12 @@ from cidre.generation_profile import (
     load_generation_profile,
     save_generation_profile,
 )
+from cidre.published_slugs import (
+    SlugChange,
+    compare_published_book_slugs,
+    published_slug_issues,
+    slug_correction_text,
+)
 
 # build_site.py doit être dans le même dossier et contenir build_site(...) + load_config(...)
 from build_site import (
@@ -169,6 +175,108 @@ def format_blocking_validation_message(report, books):
     if len(report.blocking_issues) > 8:
         message += f"\n- ... {len(report.blocking_issues) - 8} autre(s) problème(s)"
     return title, message, message
+
+
+def format_slug_change_message(change: SlugChange) -> str:
+    return (
+        f"Titre : {change.title or '(titre absent)'}\n"
+        f"ISBN : {change.id13}\n\n"
+        "Slug actuellement publié :\n"
+        f"{change.published_slug}\n\n"
+        "Slug qui serait généré :\n"
+        f"{change.current_slug}\n\n"
+        "Slug recommandé à recopier dans l'Excel :\n"
+        f"{change.recommended_slug}"
+    )
+
+
+def format_slug_changes_log(changes: list[SlugChange]) -> str:
+    parts = ["Changements de slug de livres détectés :"]
+    for change in changes:
+        parts.extend(["", format_slug_change_message(change)])
+    return "\n".join(parts)
+
+
+def validation_report_without_slug_changes(report):
+    return type(report)([issue for issue in report.issues if issue.code != "BOOK_SLUG_CHANGED"])
+
+
+class SlugChangeDialog(tk.Toplevel):
+    def __init__(self, parent, changes: list[SlugChange]):
+        super().__init__(parent)
+        self.title("Stabilité des URL des livres")
+        self.result = False
+        self.changes = changes
+
+        self.transient(parent)
+        self.grab_set()
+
+        tk.Label(
+            self,
+            text=(
+                "Des ouvrages déjà publiés changeraient d'URL.\n"
+                "L'action recommandée est d'annuler et de recopier le slug publié dans l'Excel."
+            ),
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(12, 8))
+
+        body = tk.Frame(self)
+        body.pack(fill="both", expand=True, padx=12, pady=6)
+
+        self.listbox = tk.Listbox(body, height=min(8, max(3, len(changes))), exportselection=False)
+        self.listbox.pack(side="left", fill="y")
+        for change in changes:
+            self.listbox.insert("end", f"{change.id13} - {change.title or '(titre absent)'}")
+
+        self.text = tk.Text(body, height=14, width=72, wrap="word")
+        self.text.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        self.listbox.bind("<<ListboxSelect>>", lambda _evt: self._refresh_details())
+        self.listbox.selection_set(0)
+        self._refresh_details()
+
+        buttons = tk.Frame(self)
+        buttons.pack(fill="x", padx=12, pady=(8, 12))
+        tk.Button(buttons, text="Copier le slug recommandé", command=self.copy_selected_slug).pack(side="left")
+        tk.Button(buttons, text="Copier toutes les corrections", command=self.copy_all_corrections).pack(side="left", padx=8)
+        tk.Button(buttons, text="Annuler et corriger l'Excel", command=self.cancel).pack(side="right")
+        tk.Button(buttons, text="Générer malgré les changements", command=self.continue_build).pack(side="right", padx=8)
+
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+
+    def _selected_index(self) -> int:
+        selection = self.listbox.curselection()
+        return int(selection[0]) if selection else 0
+
+    def _refresh_details(self) -> None:
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", format_slug_change_message(self.changes[self._selected_index()]))
+        self.text.configure(state="disabled")
+
+    def _copy_text(self, text: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+    def copy_selected_slug(self) -> None:
+        self._copy_text(self.changes[self._selected_index()].recommended_slug)
+
+    def copy_all_corrections(self) -> None:
+        self._copy_text(slug_correction_text(self.changes))
+
+    def cancel(self) -> None:
+        self.result = False
+        self.destroy()
+
+    def continue_build(self) -> None:
+        self.result = True
+        self.destroy()
+
+
+def confirm_slug_changes(parent, changes: list[SlugChange]) -> bool:
+    dialog = SlugChangeDialog(parent, changes)
+    parent.wait_window(dialog)
+    return bool(dialog.result)
 
 
 class App(tk.Tk):
@@ -778,6 +886,11 @@ class App(tk.Tk):
                 out_dir=out_dir,
                 covers_dir=covers,
             )
+            if validation_report.has_blocking_issues:
+                published_comparison = None
+            else:
+                published_comparison = compare_published_book_slugs(out_dir / "catalogue.json", books_validation)
+                validation_report.issues.extend(published_slug_issues(published_comparison))
         except Exception as e:
             messagebox.showerror("Validation impossible", f"La validation a échoué :\n\n{e}")
             return
@@ -803,7 +916,15 @@ class App(tk.Tk):
             messagebox.showerror(title, message)
             return
 
-        if not should_continue_after_validation(validation_report, confirm_alerts):
+        slug_changes = published_comparison.changes if published_comparison else []
+        if slug_changes:
+            self.log(format_slug_changes_log(slug_changes))
+            if not confirm_slug_changes(self, slug_changes):
+                self.log("Génération annulée : corrigez les slugs dans l'Excel puis relancez.")
+                return
+
+        remaining_alert_report = validation_report_without_slug_changes(validation_report)
+        if not should_continue_after_validation(remaining_alert_report, confirm_alerts):
             out_dir.mkdir(parents=True, exist_ok=True)
             write_validation_csv(validation_report, out_dir / "validation.csv")
             self.log(f"Validation interrompue : rapport écrit dans {out_dir / 'validation.csv'}")
