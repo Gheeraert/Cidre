@@ -246,7 +246,10 @@ class ActualitesStore:
         put("link", actu.link or None)
         put("image", Path(actu.image.replace("\\", "/")).name if actu.image else None)
         put("is_active", 1 if actu.is_active else 0)
-        put("id13", int(actu.id13) if actu.id13 else None)
+
+        id13_cell = self.ws.cell(row=row, column=self.cols["id13"])
+        id13_cell.value = actu.id13 or None
+        id13_cell.number_format = "@"
 
         date_cell = self.ws.cell(row=row, column=self.cols["date"])
         if actu.date:

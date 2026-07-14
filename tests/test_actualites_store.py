@@ -200,6 +200,31 @@ def test_isbn_absent_du_catalogue(workbook):
     assert any(i.confirmable and "catalogue" in i.message for i in issues)
 
 
+def test_isbn_actualite_est_ecrit_comme_texte(workbook):
+    store = ActualitesStore(workbook)
+    store.ws.cell(row=3, column=store.cols["id13"]).number_format = "0"
+    row = store.save_actu(Actu(title="ISBN texte", text="t", id13="9791024017730"))
+    store.save_workbook()
+
+    wb = openpyxl.load_workbook(workbook)
+    cell = wb["ACTUS"].cell(row=row, column=store.cols["id13"])
+    assert cell.value == "9791024017730"
+    assert isinstance(cell.value, str)
+    assert cell.number_format == "@"
+
+
+def test_isbn_actualite_vide_garde_le_format_texte(workbook):
+    store = ActualitesStore(workbook)
+    store.ws.cell(row=3, column=store.cols["id13"]).number_format = "0"
+    row = store.save_actu(Actu(title="Sans ISBN", text="t"))
+    store.save_workbook()
+
+    wb = openpyxl.load_workbook(workbook)
+    cell = wb["ACTUS"].cell(row=row, column=store.cols["id13"])
+    assert cell.value is None
+    assert cell.number_format == "@"
+
+
 def test_validation_messages(workbook):
     store = ActualitesStore(workbook)
     # ni titre ni texte
