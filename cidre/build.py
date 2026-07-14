@@ -177,11 +177,16 @@ def _book_card_html(r: pd.Series, rel_prefix: str, cfg: SiteConfig,
                     extra_classes: str = "",
                     data_attributes: Optional[Dict[str, str]] = None,
                     lazy_cover: bool = False,
-                    show_excerpt: bool = False) -> str:
+                    show_excerpt: bool = False,
+                    available_covers: Optional[set[str]] = None) -> str:
     cover = as_str(r.get("cover_file")).strip()
 
     if cover:
         cover = cover.replace("\\", "/").split("/")[-1]  # basename sûr
+        if available_covers is not None and cover not in available_covers:
+            cover = ""
+
+    if cover:
         cover_url = f"{rel_prefix}/covers/{e(cover)}"  # PAS de replace()
 
         image_loading = ' loading="lazy" decoding="async"' if lazy_cover else ""
@@ -346,6 +351,7 @@ def _catalogue_year_sort_key(year: str) -> tuple[int, Any]:
 
 
 def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) -> None:
+    available_covers = utils.compute_available_covers(out_dir)
     cards = [
         _book_card_html(
             row, ".", cfg,
@@ -353,6 +359,7 @@ def build_catalogue_page(cfg: SiteConfig, books: pd.DataFrame, out_dir: Path) ->
             data_attributes=_catalogue_card_data(row),
             lazy_cover=True,
             show_excerpt=True,
+            available_covers=available_covers,
         )
         for _, row in books.iterrows()
     ]

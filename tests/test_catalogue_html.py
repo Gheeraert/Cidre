@@ -38,7 +38,12 @@ def _book(index: int, **overrides):
     return row
 
 
-def _build_catalogue(tmp_path: Path, books: pd.DataFrame) -> str:
+def _build_catalogue(tmp_path: Path, books: pd.DataFrame, existing_covers=()) -> str:
+    if existing_covers:
+        covers_dir = tmp_path / "covers"
+        covers_dir.mkdir()
+        for name in existing_covers:
+            (covers_dir / name).write_bytes(b"fake image")
     bs.build_catalogue_page(bs.SiteConfig(), books, tmp_path)
     return (tmp_path / "catalogue.html").read_text(encoding="utf-8")
 
@@ -48,7 +53,7 @@ def test_catalogue_html_contient_toutes_les_cartes_et_leurs_attributs(tmp_path):
         _book(1, collection='Essais " & <spéciaux>', format_site='Broché & <format>'),
         _book(2),
     ])
-    html = _build_catalogue(tmp_path, books)
+    html = _build_catalogue(tmp_path, books, existing_covers=["cover-1.jpg"])
 
     assert html.count('class="card catalogue-card"') == 2
     assert './livres/ouvrage-1.html' in html
@@ -59,6 +64,23 @@ def test_catalogue_html_contient_toutes_les_cartes_et_leurs_attributs(tmp_path):
     assert 'data-search="Titre 1 Sous-titre 1 Auteur 1 9780000000001 Essais &quot; &amp; &lt;spéciaux&gt; Broché &amp; &lt;format&gt;"' in html
     assert 'loading="lazy" decoding="async"' in html
     assert not re.search(r'class="card catalogue-card"[^>]*\shidden', html)
+
+
+def test_catalogue_html_ignore_les_couvertures_absentes(tmp_path):
+    books = pd.DataFrame([
+        _book(1, slug="avec-couverture", cover_file="presente.jpg"),
+        _book(2, slug="sans-couverture", cover_file="absente.jpg"),
+    ])
+    html = _build_catalogue(tmp_path, books, existing_covers=["presente.jpg"])
+
+    assert html.count('class="card catalogue-card"') == 2
+    assert './livres/avec-couverture.html' in html
+    assert './livres/sans-couverture.html' in html
+    assert "src='./covers/presente.jpg'" in html
+    assert "data-lightbox-src='./covers/presente.jpg'" in html
+    assert 'loading="lazy" decoding="async"' in html
+    assert "src='./covers/absente.jpg'" not in html
+    assert "data-lightbox-src='./covers/absente.jpg'" not in html
 
 
 def test_catalogue_html_est_complet_sans_catalogue_json(tmp_path):
