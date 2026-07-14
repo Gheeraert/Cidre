@@ -40,36 +40,36 @@ Téléchargement des exécutables et utilisation
 - Pages générées :  
   - `index.html` (accueil)  
   - `catalogue.html` (recherche + filtres côté navigateur)
-  - `actualite.html` (+ carrousel sur page d'accueil) 
+  - `actualites.html` (+ carrousel sur page d'accueil)
   - `nouveautes.html`, `a-paraitre.html`  
+  - fiches individuelles dans `livres/`
   - `collections/…`, `revues/…`  
   - pages fixes (politique éditoriale, mentions légales, etc.)
 - Export d’un `catalogue.json` réutilisable ; le catalogue HTML reste lisible sans JavaScript,
-  avec recherche et filtres activés progressivement côté navigateur
+  avec recherche, filtres et affichage progressif activés côté navigateur lorsque JavaScript est disponible
 - Gestion des couvertures (copie, fallback si manquante)
-- Option de publication (FTP) si activée dans le script / la config
+- Pages de collections et de revues, avec présentation des numéros associés lorsqu'ils sont renseignés
+- Export ONIX et validation ONIX autonome
+- Référencement statique : URL canoniques, métadonnées de partage, données structurées, `robots.txt` et sitemap lorsque `site_url` est valide
+- Option de publication FTP si activée dans la configuration
 - Utilisation simple : chargement de l'Excel et génération automatique depuis une interface tkinter (boîte de dialogue)
-- validateur onix autonome pour vérifier la validité du fichier généré
 
 ---
 
 ## Prérequis
 
-- **Python 3.10+** recommandé
-- Un environnement virtuel (venv/uv/conda) est conseillé
-- Librairie markdown (pip install markdown)
-- Librairie pandas (pip install pandas)
-- Librairie openpyxl (pip install openpyxl)
+- **Python 3.12** est la version de référence, utilisée par la CI et pour le verrou des dépendances.
+- Un environnement virtuel est recommandé.
 
-> Les dépendances exactes sont définies dans `requirements.txt`.
+> `requirements.txt` liste les dépendances directes ; `requirements-lock.txt` fige les versions exactes validées.
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/<org>/<repo>.git
-cd <repo>
+git clone https://github.com/Gheeraert/Cidre.git
+cd Cidre
 
 python -m venv .venv
 # Linux/macOS
@@ -77,22 +77,17 @@ source .venv/bin/activate
 # Windows
 .venv\Scripts\activate
 
-pip install -r requirements.txt
+python -m pip install -r requirements-lock.txt
 ```
 
 ### Dépendances Python verrouillées
 
-Python 3.12 est la version de référence pour les tests et la CI.
-
-Pour une installation stable ou de production, installez l'environnement validé :
-
-```bash
-python -m pip install -r requirements-lock.txt
-```
-
 `requirements.txt` liste les dépendances directes de CIDRE et leurs bornes.
 `requirements-lock.txt` fige les versions exactes directes et transitives
 testées ensemble.
+
+`pip-tools` sert uniquement à régénérer ce verrou ; il n'est pas une dépendance
+d'exécution de CIDRE.
 
 Pour régénérer le verrou, utilisez un environnement Python 3.12 propre :
 
@@ -116,17 +111,17 @@ python -m pytest
 
 1) Copiez le gabarit officiel `gabarit/purh_site_excel_gabarit.xlsx` (ne travaillez pas directement dans le gabarit) et remplissez votre copie.
 
-2) Placez les logos mentionnés dans la feuille "config" du tableur dans le même répertoire que le fichier tableur
+2) Placez les logos et fichiers complémentaires dans un dossier source d'assets, par exemple `assets-source/`.
 
 3) Placez les couvertures dans un dossier (ex. `covers/`).
 
-4) Lancez la génération. Soit vous utiliser l'interface graphique gui_tk.py, soit ainsi:
+4) Lancez la génération. Vous pouvez utiliser l'interface graphique `gui_tk.py`, ou la CLI :
 
 ```powershell
 .venv\Scripts\python.exe build_site.py --excel chemin\vers\classeur.xlsx --out site-sortie --covers-dir covers --assets-dir assets-source
 ```
 
-4) Ouvrez `site-sortie/index.html` dans un navigateur, ou servez en local :
+5) Ouvrez `site-sortie/index.html` dans un navigateur, ou servez en local :
 
 ```bash
 python -m http.server 8000 --directory site-sortie
@@ -164,6 +159,31 @@ Exemple :
 
 Le profil sert seulement à remplir plus vite les champs de la boîte de dialogue.
 L'Excel reste l'unique source de vérité éditoriale.
+
+## Validation et génération transactionnelle
+
+CIDRE valide les données avant de générer le site. Les erreurs bloquantes
+interrompent la génération. Les alertes contournables doivent être confirmées ;
+en CLI, l'option `--force` permet de générer malgré ces alertes lorsqu'elles ne
+sont pas bloquantes.
+
+Un rapport `validation.csv` est produit dans le dossier de sortie. Le mode :
+
+```powershell
+.venv\Scripts\python.exe build_site.py --excel <classeur.xlsx> --out site-sortie --validate-only
+```
+
+écrit le rapport de validation et les données nécessaires sans générer tout le
+site.
+
+Lors d'une génération complète, le site est d'abord construit dans un dossier
+temporaire voisin du dossier de sortie. Le dossier de sortie existant n'est
+remplacé qu'après une construction complète. Si la construction échoue avant ce
+remplacement, le site précédent reste en place. Si le basculement final échoue,
+CIDRE tente de restaurer automatiquement le dossier précédent.
+
+Cette garantie concerne la génération locale. Elle ne rend pas transactionnelle
+une publication FTP distante.
 
 ## Stabilité des URL des livres
 
@@ -228,8 +248,12 @@ Un petit éditeur graphique permet de gérer la feuille ACTUS du classeur sans o
 ```
 
 - l'ISBN du livre associé, le visuel et le lien externe sont facultatifs et indépendants ;
-- les images importées sont rangées automatiquement dans le dossier `actu/` à côté du classeur ;
-- une sauvegarde horodatée du classeur est créée avant la première modification.
+- l'éditeur lit et écrit uniquement la feuille `ACTUS` ; il ne lit ni ne modifie la feuille `CONFIG` ;
+- les images importées sont rangées automatiquement dans `assets/actu/` à côté du classeur ;
+- les anciens emplacements sont encore acceptés en lecture pour compatibilité, mais `assets/actu/` est l'emplacement recommandé ;
+- une sauvegarde horodatée du classeur est créée avant la première modification de la session ;
+- l'enregistrement passe par un fichier temporaire puis un remplacement sûr du classeur ;
+- Excel doit être fermé pendant l'enregistrement.
 
 ---
 
@@ -319,8 +343,9 @@ dossier-du-classeur/
 └─ covers/         couvertures
 ```
 
-Les anciens emplacements restent acceptés en repli : fichiers posés à la racine
-du dossier du classeur, ou dans `actu/`, `social/`, `images/`.
+Les anciens emplacements restent acceptés en repli pour compatibilité : fichiers
+posés à la racine du dossier du classeur, ou dans les anciens dossiers `actu/`,
+`social/`, `images/`.
 
 ## Dossier source des assets
 
@@ -354,12 +379,16 @@ Dans le dossier de sortie choisi :
 
 - `index.html`
 - `catalogue.html`
+- `actualites.html`
 - `nouveautes.html`
 - `a-paraitre.html`
+- `livres/` (fiches livres)
 - `collections/` (pages collection)
 - `revues/` (pages revue)
-- `pages/` (pages fixes, selon votre architecture)
 - `catalogue.json`, `actualites.json`
+- `validation.csv`
+- `robots.txt`
+- `sitemap.xml` si `site_url` est valide
 - `assets/`
   - `actu/` (images des actualités)
   - `social/` (icônes des réseaux)
@@ -395,7 +424,7 @@ Copiez le contenu du dossier de sortie sur le serveur (Apache/Nginx) :
 
 ### Option B — GitHub Pages
 - déployez le dossier de sortie sur la branche `gh-pages` (ou via GitHub Actions)
-- attention aux chemins relatifs (le script peut avoir une option `--base-url` selon les versions)
+- vérifiez les chemins de publication et la valeur de `site_url` si vous utilisez les métadonnées SEO
 
 ### Option C — FTP
 - à réserver si vous n’avez pas d’accès SSH/CI
@@ -408,7 +437,7 @@ Copiez le contenu du dossier de sortie sur le serveur (Apache/Nginx) :
 - Garder **un identifiant stable** (`id13`) même si le titre change
 - Vérifier que `slug` ne change pas après mise en ligne (sinon liens cassés)
 - Normaliser les champs texte (guillemets, espaces insécables, italique si balisage prévu)
-- Centraliser la vérité : **l’tableur est la source**, pas le HTML généré
+- Centraliser la vérité : **le tableur est la source**, pas le HTML généré
 
 ---
 
@@ -438,15 +467,21 @@ Les contributions sont bienvenues (issues, PR) :
 2. Ajoutez des tests si pertinent
 3. Décrivez clairement l’impact (données / thème / compatibilité tableur)
 
+## CI et maintenance des dépendances
+
+GitHub Actions exécute la suite de tests à chaque push et pull request. La CI
+utilise Python 3.12 et installe les dépendances depuis `requirements-lock.txt`.
+
+Dependabot vérifie mensuellement les mises à jour des dépendances `pip`. Les
+mises à jour sont proposées sous forme de pull requests et doivent être validées
+par la CI ; aucune fusion automatique n'est configurée.
+
 ---
 
 ## Feuille de route (indicative)
 
-- [ ] Validation “qualité de données” (rapport : champs manquants, slugs dupliqués, prix vides…)
-- [ ] Export ONIX (ou passerelle ONIX → tableur) selon le flux métier
 - [ ] Génération de pages “fiches auteurs / contributeurs”
-- [ ] CI GitHub Actions : build + déploiement automatique
-- [ ] Accessibilité : contrastes, navigation clavier, ARIA
+- [ ] Poursuite de l'audit et des améliorations d'accessibilité
 
 ---
 
