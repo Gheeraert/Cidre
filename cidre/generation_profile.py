@@ -67,7 +67,7 @@ def profile_from_mapping(data: Any) -> GenerationProfile:
 def load_generation_profile(path: Path) -> GenerationProfile:
     try:
         raw = Path(path).read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise GenerationProfileError(f"Profil de generation illisible : {path}") from exc
     try:
         data = json.loads(raw)

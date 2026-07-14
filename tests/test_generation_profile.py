@@ -99,6 +99,16 @@ def test_profil_generation_erreurs(tmp_path, content, message):
     assert message in str(exc.value)
 
 
+def test_profil_generation_json_non_utf8(tmp_path):
+    path = tmp_path / "profil.json"
+    path.write_bytes(b'{"schema_version": 1, "output_dir": "\xff"}')
+
+    with pytest.raises(GenerationProfileError) as exc:
+        load_generation_profile(path)
+
+    assert "Profil de generation illisible" in str(exc.value)
+
+
 def test_profil_generation_absence_secrets_ftp(tmp_path):
     profile = GenerationProfile(
         excel_path="C:/catalogue.xlsx",

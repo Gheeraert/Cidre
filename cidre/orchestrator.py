@@ -29,7 +29,11 @@ from .excel_data import (
 )
 from .ftp_publish import publish_ftp
 from .output_transaction import staged_output
-from .published_slugs import compare_published_book_slugs, published_slug_issues
+from .published_slugs import (
+    PUBLISHED_SLUG_ALERT_CODES,
+    compare_published_book_slugs,
+    published_slug_issues,
+)
 from .utils import compute_available_covers, months_ago, norm_bool
 from .validation import (
     ValidationAlertError, ValidationBlockingError,
@@ -41,12 +45,6 @@ from .validation import (
 # -------------------------
 
 RESERVED_ASSET_ROOT_JSON = {"catalogue.json", "actualites.json"}
-PUBLISHED_SLUG_ALERT_CODES = {
-    "BOOK_SLUG_CHANGED",
-    "PUBLISHED_CATALOGUE_UNREADABLE",
-    "PUBLISHED_CATALOGUE_AMBIGUOUS_ID13",
-    "PUBLISHED_BOOK_SLUG_MISSING",
-}
 
 
 class AssetSourceError(ValueError):
@@ -374,10 +372,11 @@ def main():
         for issue in exc.report.alerts:
             print("", file=sys.stderr)
             print(issue.code, file=sys.stderr)
-            print(issue.message, file=sys.stderr)
+        print(issue.message, file=sys.stderr)
         print(str(exc), file=sys.stderr)
         report_path = out_dir / "validation.csv"
-        if report_path.exists():
+        stability_alert = any(issue.code in PUBLISHED_SLUG_ALERT_CODES for issue in exc.report.alerts)
+        if report_path.exists() and not stability_alert:
             print(f"Rapport écrit : {report_path}", file=sys.stderr)
         print("Relancez avec --force pour générer malgré ces alertes.", file=sys.stderr)
         sys.exit(4)

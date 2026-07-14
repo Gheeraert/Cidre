@@ -27,6 +27,7 @@ from cidre.generation_profile import (
     save_generation_profile,
 )
 from cidre.published_slugs import (
+    PUBLISHED_SLUG_ALERT_CODES,
     SlugChange,
     compare_published_book_slugs,
     published_slug_issues,
@@ -198,7 +199,15 @@ def format_slug_changes_log(changes: list[SlugChange]) -> str:
 
 
 def validation_report_without_slug_changes(report):
-    return type(report)([issue for issue in report.issues if issue.code != "BOOK_SLUG_CHANGED"])
+    return type(report)([issue for issue in report.issues if issue.code not in PUBLISHED_SLUG_ALERT_CODES])
+
+
+def validation_report_for_stability_alerts(report, *, include_slug_changes: bool = True):
+    return type(report)([
+        issue for issue in report.issues
+        if issue.code in PUBLISHED_SLUG_ALERT_CODES
+        and (include_slug_changes or issue.code != "BOOK_SLUG_CHANGED")
+    ])
 
 
 class SlugChangeDialog(tk.Toplevel):
@@ -922,6 +931,14 @@ class App(tk.Tk):
             if not confirm_slug_changes(self, slug_changes):
                 self.log("Génération annulée : corrigez les slugs dans l'Excel puis relancez.")
                 return
+
+        stability_alert_report = validation_report_for_stability_alerts(
+            validation_report,
+            include_slug_changes=not bool(slug_changes),
+        )
+        if stability_alert_report.has_alerts and not should_continue_after_validation(stability_alert_report, confirm_alerts):
+            self.log("Génération annulée : le dossier de sortie n'a pas été modifié.")
+            return
 
         remaining_alert_report = validation_report_without_slug_changes(validation_report)
         if not should_continue_after_validation(remaining_alert_report, confirm_alerts):

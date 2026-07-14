@@ -10,6 +10,14 @@ from .utils import as_str, normalize_id13
 from .validation import SEVERITY_ALERT, ValidationIssue
 
 
+PUBLISHED_SLUG_ALERT_CODES = {
+    "BOOK_SLUG_CHANGED",
+    "PUBLISHED_CATALOGUE_UNREADABLE",
+    "PUBLISHED_CATALOGUE_AMBIGUOUS_ID13",
+    "PUBLISHED_BOOK_SLUG_MISSING",
+}
+
+
 @dataclass(frozen=True)
 class SlugChange:
     id13: str
@@ -37,7 +45,7 @@ def _load_previous_catalogue(path: Path) -> tuple[list[dict], list[PublishedSlug
         return [], []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return [], [PublishedSlugProblem(
             "PUBLISHED_CATALOGUE_UNREADABLE",
             as_str(path),

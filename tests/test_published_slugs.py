@@ -176,6 +176,17 @@ def test_compare_catalogue_invalide_ou_structure_invalide(tmp_path, content):
     assert published_slug_issues(comparison)[0].severity == "alert"
 
 
+def test_compare_catalogue_non_utf8_devient_alerte(tmp_path):
+    path = tmp_path / "catalogue.json"
+    path.write_bytes(b'[{"id13": "9782877750001", "slug": "\xff"}]')
+
+    comparison = compare_published_book_slugs(path, _books([{"id13": "9782877750001", "slug": "x"}]))
+
+    assert comparison.changes == []
+    assert comparison.problems[0].code == "PUBLISHED_CATALOGUE_UNREADABLE"
+    assert published_slug_issues(comparison)[0].code == "PUBLISHED_CATALOGUE_UNREADABLE"
+
+
 def test_compare_ancien_catalogue_isbn_ambigu_et_slug_vide(tmp_path):
     comparison = compare_published_book_slugs(
         _catalogue(tmp_path / "catalogue.json", [
@@ -248,6 +259,26 @@ def test_build_site_slug_change_avec_force_genere(tmp_path):
     assert (out / "livres" / "nouveau.html").exists()
 
 
+def test_cli_alerte_stabilite_ne_signale_pas_ancien_validation_csv(tmp_path):
+    wb = _workbook(tmp_path / "site.xlsx", [{"id13": "9782877750001", "slug": "nouveau", "titre_norm": "Livre"}])
+    out = tmp_path / "site-sortie"
+    out.mkdir()
+    _catalogue(out / "catalogue.json", [{"id13": "9782877750001", "slug": "ancien"}])
+    (out / "validation.csv").write_text("ancien rapport", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "build_site.py", "--excel", str(wb), "--out", str(out)],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 4
+    assert "BOOK_SLUG_CHANGED" in result.stderr
+    assert "Rapport écrit" not in result.stderr
+    assert (out / "validation.csv").read_text(encoding="utf-8") == "ancien rapport"
+
+
 def test_validate_only_compare_avant_remplacement_catalogue(tmp_path):
     wb = _workbook(tmp_path / "site.xlsx", [{"id13": "9782877750001", "slug": "nouveau", "titre_norm": "Livre"}])
     out = tmp_path / "site-sortie"
@@ -316,6 +347,59 @@ def test_gui_annulation_slug_change_ne_lance_pas_generation(tmp_path, monkeypatc
     assert len(confirm_calls) == 1
     assert build_calls == []
     assert _snapshot(out) == before
+
+
+@pytest.mark.parametrize("catalogue_rows, expected_code", [
+    (None, "PUBLISHED_CATALOGUE_UNREADABLE"),
+    ([
+        {"id13": "9782877750001", "slug": "a"},
+        {"id13": "9782877750001", "slug": "b"},
+    ], "PUBLISHED_CATALOGUE_AMBIGUOUS_ID13"),
+    ([{"id13": "9782877750001", "slug": ""}], "PUBLISHED_BOOK_SLUG_MISSING"),
+])
+def test_gui_refus_alerte_stabilite_necrit_rien(tmp_path, monkeypatch, catalogue_rows, expected_code):
+    wb = _workbook(tmp_path / "site.xlsx", [{"id13": "9782877750001", "slug": "nouveau", "titre_norm": "Livre"}])
+    out = tmp_path / "site-sortie"
+    out.mkdir()
+    if catalogue_rows is None:
+        (out / "catalogue.json").write_text("{", encoding="utf-8")
+    else:
+        _catalogue(out / "catalogue.json", catalogue_rows)
+    (out / "validation.csv").write_text("ancien rapport", encoding="utf-8")
+    (out / "index.html").write_text("ancien site", encoding="utf-8")
+    before = _snapshot(out)
+    build_calls = []
+    prompts = []
+
+    app = object.__new__(App)
+    app.var_excel = _FakeVar(str(wb))
+    app.var_out = _FakeVar(str(out))
+    app.var_covers = _FakeVar("")
+    app.var_assets = _FakeVar("")
+    app.var_validate_only = _FakeVar(False)
+    app.var_publish_ftp = _FakeVar(True)
+    app.var_export_onix = _FakeVar(True)
+    app.var_start_server = _FakeVar(False)
+    app.var_port = _FakeVar(8000)
+    app.log = lambda msg: None
+    app._read_cfg_from_excel = lambda excel: bs.load_config(pd.ExcelFile(excel), "CONFIG")
+
+    def refuse(title, message):
+        prompts.append((title, message))
+        return False
+
+    monkeypatch.setattr(gui_tk.messagebox, "askyesno", refuse)
+    monkeypatch.setattr(gui_tk.messagebox, "showerror", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gui_tk, "build_site", lambda **kwargs: build_calls.append(kwargs))
+
+    app.run_build()
+
+    assert prompts
+    assert expected_code in prompts[0][1]
+    assert build_calls == []
+    assert _snapshot(out) == before
+    assert not list(tmp_path.glob(".site-sortie.build-*"))
+    assert not list(tmp_path.glob(".site-sortie.backup-*"))
 
 
 def test_gui_slug_change_force_transmet_generation(tmp_path, monkeypatch):
