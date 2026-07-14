@@ -89,6 +89,13 @@ testées ensemble.
 `pip-tools` sert uniquement à régénérer ce verrou ; il n'est pas une dépendance
 d'exécution de CIDRE.
 
+Pour compiler les exécutables Windows (`build_exe.bat`), préparez
+l'environnement de compilation avec :
+
+```bat
+.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+```
+
 Pour régénérer le verrou, utilisez un environnement Python 3.12 propre :
 
 ```bash

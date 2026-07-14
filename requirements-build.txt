@@ -1,0 +1,4 @@
+# Environnement de compilation des exécutables Windows (build_exe.bat).
+# Nuitka n'est pas une dépendance d'exécution de CIDRE.
+-r requirements-lock.txt
+Nuitka==4.1.3
