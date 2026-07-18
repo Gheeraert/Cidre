@@ -35,6 +35,9 @@ h2.section-heading { font-size: 1.17em; }
 .book-meta .meta-label { font-weight: 0; }
 .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
 .card { background:#fff; border: 1px solid #e6e6e6; border-radius: 12px; padding: 12px; display:flex; gap: 12px; box-shadow: 0 1px 0 rgba(0,0,0,0.02); }
+.catalogue-card[hidden] {
+  display: none;
+}
 .collection-desc { 
   margin: 10px 0 10px; 
   text-align: justify; 
